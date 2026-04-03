@@ -477,7 +477,9 @@ def load_nigeria_qc_rules() -> Dict:
         "rice":       {},
         "powerbanks": {"brands": set(), "category_codes": set()},
     }
+
     if not os.path.exists(FILE_NAME): return result
+
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="Gift card")
         if not df.empty:
@@ -485,6 +487,7 @@ def load_nigeria_qc_rules() -> Dict:
             result["gift_card"]["sellers"] = (set(df[df.columns[0]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
             result["gift_card"]["category_codes"] = (set(df[df.columns[1]].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
     except Exception: pass
+
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="Books")
         if not df.empty:
@@ -495,6 +498,7 @@ def load_nigeria_qc_rules() -> Dict:
                 raw_seller = str(row.get(df.columns[1], "")).strip().lower()
                 result["books"][book] = None if (not raw_seller or raw_seller == "nan") else raw_seller
     except Exception: pass
+
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="TVs")
         if not df.empty:
@@ -504,6 +508,7 @@ def load_nigeria_qc_rules() -> Dict:
                 bl = bc.strip().lower()
                 result["tvs"]["brand_sellers"][bl] = (set(df[bc].dropna().astype(str).str.strip().str.lower()) - {"", "nan", bl})
     except Exception: pass
+
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="HP ink toners")
         if not df.empty:
@@ -511,12 +516,14 @@ def load_nigeria_qc_rules() -> Dict:
             result["hp_toners"]["sellers"] = (set(df[df.columns[0]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
             if len(df.columns) > 1: result["hp_toners"]["category_codes"] = (set(df[df.columns[1]].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
     except Exception: pass
+
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="Apple")
         if not df.empty:
             df.columns = [str(c).strip() for c in df.columns]
             result["apple"]["sellers"] = (set(df[df.columns[0]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
     except Exception: pass
+
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="Xmas Tree")
         if not df.empty:
@@ -524,6 +531,7 @@ def load_nigeria_qc_rules() -> Dict:
             result["xmas_tree"]["sellers"] = (set(df[df.columns[0]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
             if len(df.columns) > 1: result["xmas_tree"]["keywords"] = (set(df[df.columns[1]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "keyword", "keywords"})
     except Exception: pass
+
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="Rice")
         if not df.empty:
@@ -538,6 +546,7 @@ def load_nigeria_qc_rules() -> Dict:
                 result["rice"][brand]["sellers"].update(sellers)
                 if cat_code: result["rice"][brand]["category_codes"].add(cat_code)
     except Exception: pass
+
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="20,000mah Powerbanks")
         if not df.empty:
@@ -545,6 +554,7 @@ def load_nigeria_qc_rules() -> Dict:
             result["powerbanks"]["brands"] = (set(df[df.columns[0]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "brand"})
             if len(df.columns) > 1: result["powerbanks"]["category_codes"] = (set(df[df.columns[1]].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
     except Exception: pass
+
     return result
 
 @st.cache_data(ttl=3600)
@@ -607,8 +617,7 @@ def load_flags_mapping(filename="reason.xlsx") -> Dict[str, dict]:
                     ng_keys = {k: v for k, v in default_mapping.items() if k.startswith('NG - ')}
                     merged = {**custom_mapping, **ng_keys}
                     return merged
-    except Exception as e:
-        logger.warning(f"load_flags_mapping({filename}): {e}")
+    except Exception: pass
 
     return default_mapping
 
@@ -666,7 +675,7 @@ def load_all_support_files() -> Dict:
                         if _p and _c:
                             _cat_path_to_code[_p.lower()] = _c  
                             _code_to_path[_c] = _p               
-    except Exception as _ce: pass
+    except Exception: pass
 
     support['categories_names_list'] = _cat_names
     support['cat_path_to_code'] = _cat_path_to_code
@@ -900,17 +909,9 @@ def check_miscellaneous_category(data: pd.DataFrame, categories_list: list = Non
             _data['_pred_conf'] = names_series.map(name_to_result).apply(lambda r: float(r[1]) if isinstance(r, (list, tuple)) and len(r) > 1 else 0.0)
             _data['_actual_path'] = _data['CATEGORY_CODE'].apply(lambda c: code_to_path.get(str(c).strip(), '') if pd.notna(c) else '')
 
-            def _top_domain(path: str) -> str:
-                if not path: return ''
-                return str(path).split('>')[0].split('/')[0].strip().lower()
-
-            pred_domain   = _data['_pred_path'].apply(_top_domain)
-            actual_domain = _data['_actual_path'].apply(_top_domain)
-            conf_thr      = st.session_state.get('cat_conf_threshold', 0.0)
-
-            mismatch = (
-                pred_domain.ne('') & actual_domain.ne('') & pred_domain.ne(actual_domain) & (_data['_pred_conf'] >= conf_thr)
-            )
+            conf_thr = st.session_state.get('cat_conf_threshold', 0.0)
+            mismatch = (_data['_pred_path'].ne('') & _data['_actual_path'].ne('') & _data['_pred_path'].ne(_data['_actual_path']) & (_data['_pred_conf'] >= conf_thr))
+            
             flagged = _data[mismatch].copy()
             if not flagged.empty:
                 flagged['Comment_Detail'] = "Predicted: " + flagged['_pred_path'].str[:60] + " (conf: " + flagged['_pred_conf'].round(2).astype(str) + ")"
@@ -1027,9 +1028,7 @@ def check_suspected_fake_products(data: pd.DataFrame, suspected_fake_df: pd.Data
         cats = d['CAT_BASE'].values
         d['is_fake'] = [p < brand_cat_price.get((b, c), -1) for p, b, c in zip(prices, brands, cats)]
         return d[d['is_fake'] == True][data.columns].drop_duplicates(subset=['PRODUCT_SET_SID'])
-    except Exception as e:
-        logger.warning(f"check_suspected_fake_products: {e}")
-        return pd.DataFrame(columns=data.columns)
+    except Exception: return pd.DataFrame(columns=data.columns)
 
 def check_refurb_seller_approval(data: pd.DataFrame, refurb_data: dict, country_code: str) -> pd.DataFrame:
     required = {'PRODUCT_SET_SID', 'CATEGORY_CODE', 'SELLER_NAME', 'NAME'}
@@ -1305,8 +1304,8 @@ def check_duplicate_products(data: pd.DataFrame, exempt_categories: List[str] = 
     return rdf[base_cols + extra_cols].drop_duplicates(subset=['PRODUCT_SET_SID'])
 
 def check_nigeria_gift_card(data: pd.DataFrame, ng_rules: Dict) -> pd.DataFrame:
-    rules = ng_rules.get("gift_card", {})
-    cat_codes = rules.get("category_codes", set())
+    rules            = ng_rules.get("gift_card", {})
+    cat_codes        = rules.get("category_codes", set())
     approved_sellers = rules.get("sellers", set())
     if not cat_codes or not approved_sellers: return pd.DataFrame(columns=data.columns)
     if not {"CATEGORY_CODE", "SELLER_NAME"}.issubset(data.columns): return pd.DataFrame(columns=data.columns)
@@ -1453,7 +1452,6 @@ def check_nigeria_powerbanks(data: pd.DataFrame, ng_rules: Dict) -> pd.DataFrame
             return f"Brand '{row['BRAND']}' not approved for {mah_str} powerbanks. Approved: {', '.join(b.title() for b in sorted(allowed_brands))}"
         flagged["Comment_Detail"] = flagged.apply(_comment, axis=1)
     return flagged[[c for c in data.columns if c in flagged.columns] + ["Comment_Detail"]].drop_duplicates(subset=["PRODUCT_SET_SID"])
-
 
 if _reg is not None:
     _reg.REGISTRY.update({
@@ -1688,26 +1686,14 @@ def prepare_full_data_merged(data_df, final_report_df):
         d_cp, r_cp = data_df.copy(), final_report_df.copy()
         d_cp['PRODUCT_SET_SID'] = d_cp['PRODUCT_SET_SID'].astype(str).str.strip()
         r_cp['ProductSetSid'] = r_cp['ProductSetSid'].astype(str).str.strip()
-        
         _code_to_path = st.session_state.get('support_files', {}).get('code_to_path', {})
         if _code_to_path and 'CATEGORY_CODE' in d_cp.columns:
-            d_cp['FULL_CATEGORY_PATH'] = d_cp['CATEGORY_CODE'].apply(
-                lambda c: _code_to_path.get(str(c).strip(), '') if pd.notna(c) else ''
-            )
+            d_cp['FULL_CATEGORY_PATH'] = d_cp['CATEGORY_CODE'].apply(lambda c: _code_to_path.get(str(c).strip(), '') if pd.notna(c) else '')
         else:
             d_cp['FULL_CATEGORY_PATH'] = ''
-            
-        merged = pd.merge(
-            d_cp, 
-            r_cp[["ProductSetSid", "Status", "Reason", "Comment", "FLAG", "SellerName"]], 
-            left_on="PRODUCT_SET_SID", right_on="ProductSetSid", how='left'
-        )
-        
-        if 'ProductSetSid' in merged.columns: 
-            merged.drop(columns=['ProductSetSid'], inplace=True)
-            
+        merged = pd.merge(d_cp, r_cp[["ProductSetSid", "Status", "Reason", "Comment", "FLAG", "SellerName"]], left_on="PRODUCT_SET_SID", right_on="ProductSetSid", how='left')
+        if 'ProductSetSid' in merged.columns: merged.drop(columns=['ProductSetSid'], inplace=True)
         return merged
-        
     except Exception as e:
         logger.error(f"prepare_full_data_merged: {e}")
         return pd.DataFrame()
@@ -1803,11 +1789,7 @@ if st.session_state.get('last_processed_files') != process_signature:
                 st.session_state.file_mode = file_mode
 
                 if file_mode == 'post_qc':
-                    st.info(
-                        "Post-QC file detected. "
-                        "Please use the **Post-QC** page in the sidebar to process this file.",
-                        icon=":material/fact_check:",
-                    )
+                    st.info("Post-QC file detected. Please use the Post-QC page.", icon=":material/fact_check:")
                     st.session_state.last_processed_files = process_signature
                 else:
                     std_dfs = []
@@ -1826,7 +1808,7 @@ if st.session_state.get('last_processed_files') != process_signature:
                     if is_valid:
                         data_filtered, det_names = filter_by_country(data_prop, country_validator)
                         if data_filtered.empty:
-                            st.error(f"No {country_validator.country} products found. Detected countries: {', '.join(det_names) if det_names else 'None'}", icon=":material/error:")
+                            st.error(f"No {country_validator.country} products found.", icon=":material/error:")
                             st.stop()
                         actual_counts = data_filtered.groupby('PRODUCT_SET_SID')['PRODUCT_SET_SID'].transform('count')
                         if 'COUNT_VARIATIONS' in data_filtered.columns:
@@ -1859,10 +1841,8 @@ if st.session_state.get('last_processed_files') != process_signature:
                 st.session_state.last_processed_files = "error"
 
 _bridge_val = st.text_input(
-    "jtbridge", value="",
-    placeholder="JTBRIDGE_UNIQUE_DO_NOT_USE",
-    key=f"main_bridge_{st.session_state.main_bridge_counter}",
-    label_visibility="collapsed",
+    "jtbridge", value="", placeholder="JTBRIDGE_UNIQUE_DO_NOT_USE",
+    key=f"main_bridge_{st.session_state.main_bridge_counter}", label_visibility="collapsed",
 )
 if _bridge_val:
     try:
@@ -1871,8 +1851,7 @@ if _bridge_val:
             _payload = _msg.get("payload", {})
             if isinstance(_payload, dict) and _payload:
                 _rgroups: dict = {}
-                for _sid, _rkey in _payload.items():
-                    _rgroups.setdefault(_rkey, []).append(_sid)
+                for _sid, _rkey in _payload.items(): _rgroups.setdefault(_rkey, []).append(_sid)
                 _total = 0
                 for _rkey, _sids in _rgroups.items():
                     _flag = REASON_MAP.get(_rkey, "Other Reason (Custom)")
@@ -1880,12 +1859,8 @@ if _bridge_val:
                     _code = _rinfo['reason']
                     _cmt_lang = 'fr' if st.session_state.selected_country == "Morocco" else 'en'
                     _cmt = _rinfo.get(_cmt_lang, _rinfo.get('en'))
-                    st.session_state.final_report.loc[
-                        st.session_state.final_report["ProductSetSid"].isin(_sids),
-                        ["Status", "Reason", "Comment", "FLAG"]
-                    ] = ["Rejected", _code, _cmt, _flag]
-                    for _s in _sids:
-                        st.session_state.quick_rejections[_s] = _flag
+                    st.session_state.final_report.loc[st.session_state.final_report["ProductSetSid"].isin(_sids), ["Status", "Reason", "Comment", "FLAG"]] = ["Rejected", _code, _cmt, _flag]
+                    for _s in _sids: st.session_state.quick_rejections[_s] = _flag
                     _total += len(_sids)
                 st.session_state.exports_cache.clear()
                 st.session_state.display_df_cache.clear()
@@ -1893,7 +1868,6 @@ if _bridge_val:
                 st.session_state.main_bridge_counter += 1
                 st.session_state.do_scroll_top = False
                 st.rerun()
-
         elif _msg.get("action") == "undo":
             _payload = _msg.get("payload", {})
             _total_restored = 0
@@ -1905,9 +1879,7 @@ if _bridge_val:
                 st.session_state.main_bridge_counter += 1
                 st.session_state.do_scroll_top = False
                 st.rerun()
-
-    except Exception as _e:
-        logger.error(f"Bridge parse error: {_e}")
+    except Exception as _e: logger.error(f"Bridge parse error: {_e}")
 
 if _files_for_processing and not st.session_state.final_report.empty and st.session_state.file_mode != 'post_qc':
     fr = st.session_state.final_report
@@ -1923,18 +1895,15 @@ if _files_for_processing and not st.session_state.final_report.empty and st.sess
         multi_count = int(data['_IS_MULTI_COUNTRY'].sum()) if '_IS_MULTI_COUNTRY' in data.columns else 0
 
         metrics_config = [
-            (_t("total_prod"),  len(data),                                                                                                   JUMIA_COLORS['dark_gray']),
-            (_t("approved"),    len(app_df),                                                                                                 JUMIA_COLORS['success_green']),
-            (_t("rejected"),    len(rej_df),                                                                                                 JUMIA_COLORS['jumia_red']),
-            (_t("rej_rate"),    f"{(len(rej_df)/len(data)*100) if len(data)>0 else 0:.1f}%",                                                 JUMIA_COLORS['primary_orange']),
+            (_t("total_prod"),  len(data), JUMIA_COLORS['dark_gray']),
+            (_t("approved"),    len(app_df), JUMIA_COLORS['success_green']),
+            (_t("rejected"),    len(rej_df), JUMIA_COLORS['jumia_red']),
+            (_t("rej_rate"),    f"{(len(rej_df)/len(data)*100) if len(data)>0 else 0:.1f}%", JUMIA_COLORS['primary_orange']),
             (_t("multi_skus") if is_nigeria else _t("common_skus"), multi_count if is_nigeria else st.session_state.intersection_count, JUMIA_COLORS['warning_yellow'] if is_nigeria else JUMIA_COLORS['medium_gray']),
         ]
         for i, (label, value, color) in enumerate(metrics_config):
             with cols[i % len(cols)]:
-                st.markdown(
-                    f"<div style='height:5px;background:{color};border-radius:6px 6px 0 0;'></div>",
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"<div style='height:5px;background:{color};border-radius:6px 6px 0 0;'></div>", unsafe_allow_html=True)
                 st.metric(label=label, value=value)
 
     st.subheader(f":material/flag: {_t('flags_breakdown')}", anchor=False)
@@ -1953,15 +1922,12 @@ if _files_for_processing and not st.session_state.final_report.empty and st.sess
 
 @st.fragment
 def render_image_grid():
-    if st.session_state.final_report.empty or st.session_state.file_mode == "post_qc":
-        return
-
+    if st.session_state.final_report.empty or st.session_state.file_mode == "post_qc": return
     st.markdown("---")
     st.header(f":material/pageview: {_t('manual_review')}", anchor=False)
 
     fr   = st.session_state.final_report
     data = st.session_state.all_data_map
-
     committed_rej_sids = set(st.session_state.quick_rejections.keys())
     mask          = (fr["Status"] == "Approved") | (fr["ProductSetSid"].isin(committed_rej_sids))
     valid_grid_df = fr[mask]
@@ -1970,36 +1936,25 @@ def render_image_grid():
     with c1: search_n  = st.text_input("Search by Name", placeholder="Product name…")
     with c2: search_sc = st.text_input("Search by Seller/Category", placeholder="Seller or Category…")
     with c3:
-        st.session_state.grid_items_per_page = st.select_slider(
-            "Items per page", options=[20, 50, 100, 200],
-            value=st.session_state.grid_items_per_page,
-        )
+        st.session_state.grid_items_per_page = st.select_slider("Items per page", options=[20, 50, 100, 200], value=st.session_state.grid_items_per_page)
 
     if 'MAIN_IMAGE' not in data.columns: data['MAIN_IMAGE'] = ''
     available_cols = [c for c in GRID_COLS if c in data.columns]
-    if 'CATEGORY_CODE' in data.columns and 'CATEGORY_CODE' not in available_cols:
-        available_cols = available_cols + ['CATEGORY_CODE']
-    review_data = pd.merge(
-        valid_grid_df[["ProductSetSid"]],
-        data[available_cols],
-        left_on="ProductSetSid", right_on="PRODUCT_SET_SID", how="left",
-    )
+    if 'CATEGORY_CODE' in data.columns and 'CATEGORY_CODE' not in available_cols: available_cols = available_cols + ['CATEGORY_CODE']
+    review_data = pd.merge(valid_grid_df[["ProductSetSid"]], data[available_cols], left_on="ProductSetSid", right_on="PRODUCT_SET_SID", how="left")
 
     _code_to_path = support_files.get('code_to_path', {})
     if _code_to_path and 'CATEGORY_CODE' in review_data.columns:
         review_data = review_data.copy()
-        review_data['CATEGORY'] = review_data['CATEGORY_CODE'].apply(
-            lambda c: _code_to_path.get(str(c).strip(), str(c)) if pd.notna(c) else ''
-        )
+        review_data['CATEGORY'] = review_data['CATEGORY_CODE'].apply(lambda c: _code_to_path.get(str(c).strip(), str(c)) if pd.notna(c) else '')
 
-    if search_n:
-        review_data = review_data[review_data["NAME"].astype(str).str.contains(search_n, case=False, na=False)]
+    if search_n: review_data = review_data[review_data["NAME"].astype(str).str.contains(search_n, case=False, na=False)]
     if search_sc:
         mc = (review_data["CATEGORY"].astype(str).str.contains(search_sc, case=False, na=False) if "CATEGORY" in review_data.columns else pd.Series(False, index=review_data.index))
         ms = review_data["SELLER_NAME"].astype(str).str.contains(search_sc, case=False, na=False)
         review_data = review_data[mc | ms]
 
-    ipp         = st.session_state.grid_items_per_page
+    ipp = st.session_state.grid_items_per_page
     total_pages = max(1, (len(review_data) + ipp - 1) // ipp)
     if st.session_state.grid_page >= total_pages: st.session_state.grid_page = 0
 
@@ -2010,11 +1965,7 @@ def render_image_grid():
             st.session_state.do_scroll_top = True
             st.rerun(scope="fragment")
     with pg_cols[1]:
-        new_page = st.number_input(
-            f"Jump to Page (Total: {total_pages} | {len(review_data)} items)",
-            min_value=1, max_value=max(1, total_pages),
-            value=st.session_state.grid_page + 1, step=1
-        )
+        new_page = st.number_input(f"Jump to Page (Total: {total_pages} | {len(review_data)} items)", min_value=1, max_value=max(1, total_pages), value=st.session_state.grid_page + 1, step=1)
         if new_page - 1 != st.session_state.grid_page:
             st.session_state.grid_page = new_page - 1
             st.session_state.do_scroll_top = True
@@ -2027,43 +1978,24 @@ def render_image_grid():
 
     page_start = st.session_state.grid_page * ipp
     page_data  = review_data.iloc[page_start : page_start + ipp]
-
     page_warnings: dict = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-        future_to_sid = {
-            ex.submit(analyze_image_quality_cached, str(r.get("MAIN_IMAGE", "")).strip()): str(r["PRODUCT_SET_SID"])
-            for _, r in page_data.iterrows()
-        }
+        future_to_sid = {ex.submit(analyze_image_quality_cached, str(r.get("MAIN_IMAGE", "")).strip()): str(r["PRODUCT_SET_SID"]) for _, r in page_data.iterrows()}
         for future in concurrent.futures.as_completed(future_to_sid):
             warns = future.result()
             if warns: page_warnings[future_to_sid[future]] = warns
 
-    rejected_state = {
-        sid: st.session_state.quick_rejections[sid]
-        for sid in page_data["PRODUCT_SET_SID"].astype(str)
-        if sid in st.session_state.quick_rejections
-    }
-
+    rejected_state = {sid: st.session_state.quick_rejections[sid] for sid in page_data["PRODUCT_SET_SID"].astype(str) if sid in st.session_state.quick_rejections}
     cols_per_row = 3 if st.session_state.layout_mode == "centered" else 4
-
-    grid_html = build_fast_grid_html(
-        page_data, support_files["flags_mapping"],
-        st.session_state.selected_country, page_warnings, rejected_state, cols_per_row,
-    )
+    grid_html = build_fast_grid_html(page_data, support_files["flags_mapping"], st.session_state.selected_country, page_warnings, rejected_state, cols_per_row)
     components.html(grid_html, height=800, scrolling=True)
-
     if st.session_state.get("do_scroll_top", False):
-        components.html(
-            "<script>window.parent.document.querySelector('.main').scrollTo({top:0,behavior:'smooth'});</script>",
-            height=0,
-        )
+        components.html("<script>window.parent.document.querySelector('.main').scrollTo({top:0,behavior:'smooth'});</script>", height=0)
         st.session_state.do_scroll_top = False
 
 @st.fragment
 def render_exports_section():
-    if st.session_state.final_report.empty or st.session_state.file_mode == 'post_qc':
-        return
-
+    if st.session_state.final_report.empty or st.session_state.file_mode == 'post_qc': return
     fr      = st.session_state.final_report
     data    = st.session_state.all_data_map
     app_df  = fr[fr['Status'] == 'Approved']
@@ -2104,7 +2036,6 @@ def render_exports_section():
                 with col:
                     with st.container(border=True):
                         st.markdown(f"""<div style='text-align:center;margin-bottom:15px;'><div style='font-size:18px;font-weight:700;'>{title}</div><div style='font-size:11px;margin-top:4px;opacity:0.7;'>{desc}</div><div style='background:{JUMIA_COLORS['light_gray']};color:{JUMIA_COLORS['primary_orange']};padding:8px;border-radius:6px;margin-top:12px;font-weight:600;'>{len(df):,} rows</div></div>""", unsafe_allow_html=True)
-
                         if title not in st.session_state.exports_cache:
                             if st.button("Generate", key=f"gen_{title}", type="primary", use_container_width=True, icon=":material/download:"):
                                 with st.spinner("Generating all reports…"):
