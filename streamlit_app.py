@@ -1865,10 +1865,38 @@ def prepare_full_data_merged(data_df, final_report_df):
         return pd.DataFrame()
 
 # ==========================================
+# ==========================================
 # 4. APP UI AND EXECUTION 
 # ==========================================
 
 st.header(f":material/upload_file: {_t('upload_files')}", anchor=False)
+
+# --- RESTORED COUNTRY SELECTOR BLOCK ---
+current_country = st.session_state.get('selected_country', get_default_country())
+
+country_choice = st.segmented_control(
+    "Country",
+    ["Kenya", "Uganda", "Nigeria", "Ghana", "Morocco"],
+    default=current_country,
+    key="country_selector",
+)
+
+if country_choice and country_choice != current_country:
+    st.session_state.selected_country = country_choice
+    st.session_state.last_processed_files = None
+    st.session_state.final_report = pd.DataFrame()
+    st.session_state.all_data_map = pd.DataFrame()
+    st.session_state.exports_cache = {}
+    st.session_state.display_df_cache = {}
+    st.session_state.flags_expanded_initialized = False
+    if country_choice == "Morocco":
+        st.session_state.ui_lang = "fr"
+    else:
+        st.session_state.ui_lang = "en"
+    st.toast(f"Switching to {country_choice}…", icon=":material/public:")
+
+country_validator = CountryValidator(st.session_state.selected_country)
+# ---------------------------------------
 
 uploaded_files = st.file_uploader("", type=['csv', 'xlsx'], accept_multiple_files=True, key="daily_files")
 
