@@ -22,9 +22,6 @@ def clean_text(text: str) -> str:
 
 
 def compile_rules_from_json(raw_rules: list, code_to_path: dict = None) -> dict:
-    """
-    Converts raw JSON category rules into the compiled format the engine expects.
-    """
     if code_to_path is None:
         code_to_path = {}
 
@@ -34,13 +31,11 @@ def compile_rules_from_json(raw_rules: list, code_to_path: dict = None) -> dict:
         if not positive_kws:
             continue
 
-        # Resolve the key: prefer the full path from code_to_path, fall back to category_name
         code_str = str(rule.get('category_code', ''))
         cat_key = code_to_path.get(code_str, rule.get('category_name', '')).lower().strip()
         if not cat_key:
             continue
 
-        # Build one regex pattern covering all positive keywords
         pattern = re.compile(
             r'\b(' + '|'.join(re.escape(k.lower()) for k in positive_kws) + r')\b'
         )
@@ -74,20 +69,23 @@ class CategoryMatcherEngine:
         self.load_learning_db()
 
     def predict_batch(self, names: list) -> dict:
-        """
-        Score a list of product names in a single TF-IDF matrix operation, 
-        including JSON heuristic boosts. Extremely fast compared to row-by-row.
-        """
         if not self._tfidf_built or not names:
             return {}
 
-        # 1. Preprocess all names
+        # Ensure path lookup exists for bypass logic
+        if not hasattr(self, '_path_lookup') or not self._path_lookup:
+            self._path_lookup = {}
+            for cat in self.categories:
+                cl = cat.lower()
+                self._path_lookup[cl] = cat
+                leaf = cl
+                for sep in ('/', '>'):
+                    if sep in leaf:
+                        leaf = leaf.split(sep)[-1]
+                self._path_lookup[leaf.strip()] = cat
+
         processed = [clean_text(n) for n in names]
-        
-        # 2. Single vectorizer transform for the whole batch
         X = self.vectorizer.transform(processed)
-        
-        # 3. Batch cosine similarity (Matrix Multiplication) - Extremely Fast
         similarities_matrix = cosine_similarity(X, self.tfidf_matrix) 
         
         results = {}
@@ -97,7 +95,6 @@ class CategoryMatcherEngine:
                 results[name] = (learned, 1.0)
                 continue
                 
-            # Get the similarities for this specific product
             similarities = similarities_matrix[i]
             top_indices = similarities.argsort()[-20:][::-1]
             
@@ -105,13 +102,13 @@ class CategoryMatcherEngine:
             best_score = -1.0
             name_lower = str(name).lower()
             
+            # 1. Evaluate Top 20 TF-IDF matches
             for idx in top_indices:
                 cat_path = self.categories[idx]
                 base_score = float(similarities[idx])
                 boost = 0.0
                 
                 cat_path_lower = cat_path.lower()
-                
                 leaf_lower = cat_path_lower
                 for sep in ('/', '>'):
                     if sep in leaf_lower:
@@ -128,6 +125,20 @@ class CategoryMatcherEngine:
                 if final_score > best_score:
                     best_score = final_score
                     best_category = cat_path
+
+            # 2. Evaluate ALL JSON rules to completely bypass TF-IDF blindspots
+            if self.compiled_rules:
+                for rule_key, rule in self.compiled_rules.items():
+                    matches = rule['pattern'].findall(name_lower)
+                    if matches:
+                        boost = sum(rule['weights'].get(m.lower(), 0.0) for m in set(matches))
+                        if boost > 0:
+                            final_score = (boost * 0.6) # Bypass score
+                            if final_score > best_score:
+                                mapped_cat = self._path_lookup.get(rule_key)
+                                if mapped_cat:
+                                    best_score = final_score
+                                    best_category = mapped_cat
                     
             _threshold = 0.35 if getattr(self, '_index_has_full_paths', True) else 0.15
             if best_score < _threshold:
@@ -138,13 +149,6 @@ class CategoryMatcherEngine:
         return results
 
     def set_compiled_rules(self, rules, code_to_path: dict = None):
-        """
-        Loads heuristic rules into the engine.
-
-        Accepts either:
-          - A raw list of JSON rule dicts (auto-compiled via compile_rules_from_json)
-          - An already-compiled dict (from a prior compile_rules_from_json call)
-        """
         if isinstance(rules, list):
             self.compiled_rules = compile_rules_from_json(rules, code_to_path or {})
         else:
@@ -276,16 +280,22 @@ class CategoryMatcherEngine:
         return ""
 
     def get_category_with_boost(self, name: str, top_n: int = 20) -> str:
-        """
-        Gets the top N TF-IDF predictions, applies internal JSON heuristic boosts, 
-        and returns the highest scoring category.
-        """
         learned = self.predict_category_from_learning(name)
-        if learned: 
-            return learned
+        if learned: return learned
 
         if not getattr(self, '_tfidf_built', False):
             return ""
+
+        if not hasattr(self, '_path_lookup') or not self._path_lookup:
+            self._path_lookup = {}
+            for cat in self.categories:
+                cl = cat.lower()
+                self._path_lookup[cl] = cat
+                leaf = cl
+                for sep in ('/', '>'):
+                    if sep in leaf:
+                        leaf = leaf.split(sep)[-1]
+                self._path_lookup[leaf.strip()] = cat
         
         try:
             name_clean = clean_text(name)
@@ -304,8 +314,6 @@ class CategoryMatcherEngine:
                 boost = 0.0
                 
                 cat_path_lower = cat_path.lower()
-                
-                # Extract leaf safely for both formats
                 leaf_lower = cat_path_lower
                 for sep in ('/', '>'):
                     if sep in leaf_lower:
@@ -319,10 +327,22 @@ class CategoryMatcherEngine:
                         boost = sum(rule['weights'].get(m.lower(), 0.0) for m in set(matches))
                 
                 final_score = base_score + (boost * 0.6) 
-                
                 if final_score > best_score:
                     best_score = final_score
                     best_category = cat_path
+
+            if self.compiled_rules:
+                for rule_key, rule in self.compiled_rules.items():
+                    matches = rule['pattern'].findall(name_lower)
+                    if matches:
+                        boost = sum(rule['weights'].get(m.lower(), 0.0) for m in set(matches))
+                        if boost > 0:
+                            final_score = (boost * 0.6)
+                            if final_score > best_score:
+                                mapped_cat = self._path_lookup.get(rule_key)
+                                if mapped_cat:
+                                    best_score = final_score
+                                    best_category = mapped_cat
             
             _threshold = 0.35 if getattr(self, '_index_has_full_paths', True) else 0.15
             if best_score < _threshold:
@@ -424,12 +444,12 @@ def check_wrong_category(data: pd.DataFrame, categories_list: list, compiled_rul
     comment_map = {}
     kw_map = engine.build_keyword_to_category_mapping()
 
-    _diag_logged = 0
-    _has_code_col = 'CATEGORY_CODE' in d.columns
-    logger.info(f'[WrongCat] code_to_path size={len(code_to_path)}, '
-                f'cat_path_to_code size={len(cat_path_to_code)}, '
-                f'leaf_cache size={len(leaf_to_full_path)}, '
-                f'has_code_col={_has_code_col}')
+    # Get predictions in BULK
+    unique_names = d['_name_clean'].unique().tolist()
+    if hasattr(engine, 'predict_batch') and callable(engine.predict_batch):
+        batch_preds = engine.predict_batch(unique_names)
+    else:
+        batch_preds = {}
 
     for idx, row in d.iterrows():
         current_cat = row['_cat_clean']
@@ -443,10 +463,13 @@ def check_wrong_category(data: pd.DataFrame, categories_list: list, compiled_rul
             comment_map[idx] = "Category is 'Miscellaneous'"
             continue
 
-        predicted = engine.get_category_with_boost(name)
-        
-        if not predicted:
-            predicted = engine.get_category_with_fallback(name, kw_map, categories_list)
+        predicted = ""
+        if batch_preds and name in batch_preds:
+            predicted, _score = batch_preds[name]
+        else:
+            predicted = engine.get_category_with_boost(name)
+            if not predicted:
+                predicted = engine.get_category_with_fallback(name, kw_map, categories_list)
 
         if predicted and code_to_path and '/' not in predicted and '>' not in predicted:
             predicted = leaf_to_full_path.get(predicted.strip().lower(), predicted)
@@ -471,28 +494,18 @@ def check_wrong_category(data: pd.DataFrame, categories_list: list, compiled_rul
                 continue
 
             current_full = current_cat
-            _resolution_method = 'unresolved'
             if code_to_path:
                 row_code = str(row.get('CATEGORY_CODE', '')).strip().split('.')[0]
                 if row_code and row_code in code_to_path:
                     current_full = code_to_path[row_code]
-                    _resolution_method = f'code({row_code})'
                 else:
                     code = cat_path_to_code.get(current_cat.lower(), '')
                     if code and code in code_to_path:
                         current_full = code_to_path[code]
-                        _resolution_method = f'cat_path_to_code({code})'
                     else:
                         resolved = leaf_to_full_path.get(current_cat.strip().lower())
                         if resolved:
                             current_full = resolved
-                            _resolution_method = 'leaf_cache'
-            if _diag_logged < 10:
-                logger.info(f'[WrongCat] resolution: cat={current_cat!r} '
-                            f'row_code={str(row.get("CATEGORY_CODE","")).strip()!r} '
-                            f'method={_resolution_method} '
-                            f'current_full={current_full!r}')
-                _diag_logged += 1
 
             def get_segments(path, n):
                 for sep in ('/', '>'):
