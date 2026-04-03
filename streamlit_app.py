@@ -1126,7 +1126,8 @@ def load_and_compile_json_rules(json_path="category_qc_weighted.json") -> dict:
                 
             pattern_str = r'\b(' + '|'.join(re.escape(k) for k in sorted_kws) + r')\b'
             
-            compiled_rules[str(cat_path)] = {
+            # CRITICAL FIX: Convert the key to lowercase so the engine can find it
+            compiled_rules[str(cat_path).strip().lower()] = {
                 'pattern': re.compile(pattern_str, re.IGNORECASE),
                 'weights': {k.lower(): w for k, w in safe_kws.items()}
             }
