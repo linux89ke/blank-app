@@ -44,8 +44,13 @@ except ImportError:
 try:
     from category_matcher_engine import CategoryMatcherEngine, check_wrong_category, get_engine
     _CAT_MATCHER_AVAILABLE = True
-except ImportError:
+except Exception as e:
+    import logging
+    import traceback
+    logging.error(f"CRITICAL: Failed to import category_matcher_engine: {e}")
+    logging.error(traceback.format_exc()) # This will print the EXACT line causing the crash
     _CAT_MATCHER_AVAILABLE = False
+    
     def check_wrong_category(data, categories_list=None, cat_path_to_code=None, code_to_path=None, confidence_threshold=0.0):
         if 'CATEGORY' not in data.columns:
             return pd.DataFrame(columns=data.columns)
