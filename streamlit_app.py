@@ -1869,6 +1869,28 @@ def prepare_full_data_merged(data_df, final_report_df):
 # 4. APP UI AND EXECUTION 
 # ==========================================
 
+
+try: 
+    support_files = load_support_files_lazy()
+    st.session_state.support_files = support_files
+    st.session_state['compiled_json_rules'] = support_files.get('compiled_json_rules', {})
+except Exception as e: 
+    st.error(f"Failed to load configs: {e}")
+    st.stop()
+
+def get_image_base64(path):
+    if os.path.exists(path):
+        try:
+            with open(path, "rb") as img_file: return base64.b64encode(img_file.read()).decode('utf-8')
+        except Exception as e:
+            logger.warning(f"get_image_base64({path}): {e}")
+    return ""
+
+logo_base64 = get_image_base64("jumia logo.png") or get_image_base64("jumia_logo.png")
+logo_html = f"<img src='data:image/png;base64,{logo_base64}' style='height: 42px; margin-right: 15px;'>" if logo_base64 else "<span class='material-symbols-outlined' style='font-size: 42px; margin-right: 15px;'>verified_user</span>"
+
+st.markdown(f"""<div style='background: linear-gradient(135deg, {JUMIA_COLORS['primary_orange']}, {JUMIA_COLORS['secondary_orange']}); padding: 25px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(246, 139, 30, 0.3);'><h1 style='color: white; margin: 0; font-size: 36px; display: flex; align-items: center;'>{logo_html}Product Validation Tool</h1></div>""", unsafe_allow_html=True)
+
 st.header(f":material/upload_file: {_t('upload_files')}", anchor=False)
 
 # --- RESTORED COUNTRY SELECTOR BLOCK ---
