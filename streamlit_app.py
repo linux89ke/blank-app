@@ -87,7 +87,7 @@ def _load_engine_background():
             _engine_instance = eng
         logger.info("CategoryMatcherEngine loaded in background thread.")
     except Exception as e:
-        logger.warning("Background engine load failed: %s", e)
+        logger.warning(f"Background engine load failed: {e}")
     finally:
         _engine_ready.set()
 
@@ -208,8 +208,8 @@ def format_local_price(usd_price, country: str) -> str:
         rate = fetch_exchange_rate(country)
         local = price * rate
         symbol = cfg.get("symbol", "$")
-        if cfg.get("code") in ("KES", "UGX", "NGN"): return "{} {:,.0f}".format(symbol, local)
-        else: return "{} {:,.2f}".format(symbol, local)
+        if cfg.get("code") in ("KES", "UGX", "NGN"): return f"{symbol} {local:,.0f}"
+        else: return f"{symbol} {local:,.2f}"
     except: return ""
 
 SPLIT_LIMIT = 9998
@@ -279,7 +279,6 @@ rtl_css = """
         }
 """ if st.session_state.ui_lang == "ar" else ""
 
-# ── FIX: Use .format() instead of f-string to avoid Python 3.14 tokenizer bug ──
 _css = """
     <style>
         {rtl_css}
@@ -393,7 +392,7 @@ def create_match_key(row: pd.Series) -> str:
     name = normalize_text(row.get('NAME', ''))
     brand = normalize_text(row.get('BRAND', ''))
     color = normalize_text(row.get('COLOR', ''))
-    return "{}|{}|{}".format(brand, name, color)
+    return f"{brand}|{name}|{color}"
 
 def df_hash(df: pd.DataFrame) -> str:
     try:
@@ -613,7 +612,7 @@ def load_nigeria_qc_rules() -> Dict:
     FILE_NAME = "Nigeria_QC_Rules.xlsx"
     result: Dict = {
         "gift_card":  {"sellers": set(), "category_codes": set()},
-        "books":      {},
+        "books":      {}, 
         "tvs":        {"category_codes": set(), "brand_sellers": {}},
         "hp_toners":  {"sellers": set(), "category_codes": set()},
         "apple":      {"sellers": set()},
@@ -874,14 +873,25 @@ class CountryValidator:
         "Ghana": {"code": "GH", "skip_validations": []},
         "Morocco": {"code": "MA", "skip_validations": []}
     }
+    
     def __init__(self, country: str):
         self.country = country
         self.config = self.COUNTRY_CONFIG.get(country, self.COUNTRY_CONFIG["Kenya"])
-        self.code = self.config["code"]
-        self.skip_validations = self.config["skip_validations"]
-    def should_skip_validation(self, validation_name: str) -> bool: return validation_name in self.skip_validations
+
+    @property
+    def code(self) -> str:
+        return self.config.get("code", "KE")
+
+    @property
+    def skip_validations(self) -> List[str]:
+        return self.config.get("skip_validations", [])
+
+    def should_skip_validation(self, validation_name: str) -> bool:
+        return validation_name in self.skip_validations
+
     def ensure_status_column(self, df: pd.DataFrame) -> pd.DataFrame:
-        if not df.empty and 'Status' not in df.columns: df['Status'] = 'Approved'
+        if not df.empty and 'Status' not in df.columns: 
+            df['Status'] = 'Approved'
         return df
 
 def _detect_and_read_csv(buf) -> pd.DataFrame:
@@ -929,7 +939,7 @@ def standardize_input_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def validate_input_schema(df: pd.DataFrame) -> Tuple[bool, List[str]]:
-    errors = ["Missing: {}".format(f) for f in ['PRODUCT_SET_SID', 'NAME', 'BRAND', 'CATEGORY_CODE', 'ACTIVE_STATUS_COUNTRY'] if f not in df.columns]
+    errors = [f"Missing: {f}" for f in ['PRODUCT_SET_SID', 'NAME', 'BRAND', 'CATEGORY_CODE', 'ACTIVE_STATUS_COUNTRY'] if f not in df.columns]
     return len(errors) == 0, errors
 
 MULTI_COUNTRY_VALUES = {'MULTIPLE', 'MULTI'}
@@ -950,7 +960,7 @@ def filter_by_country(df: pd.DataFrame, country_validator: CountryValidator) -> 
     if filtered.empty:
         detected_codes = [c for c in df['ACTIVE_STATUS_COUNTRY'].unique() if str(c).strip() and str(c).strip().lower() != 'nan']
         emoji_map = {"KE": "Kenya", "UG": "Uganda", "NG": "Nigeria", "GH": "Ghana", "MA": "Morocco"}
-        detected_names = [emoji_map.get(c, "'{}'".format(c)) for c in detected_codes]
+        detected_names = [emoji_map.get(c, f"'{c}'") for c in detected_codes]
     return filtered, detected_names
 
 def propagate_metadata(df: pd.DataFrame) -> pd.DataFrame:
@@ -1058,7 +1068,7 @@ def check_miscellaneous_category(data: pd.DataFrame, categories_list: list = Non
 
             flagged = _data[mismatch].copy()
             if not flagged.empty:
-                flagged['Comment_Detail'] = "Predicted: " + flagged['_pred_path'].str[:60] + " (conf: " + flagged['_pred_conf'].round(2).astype(str) + ")"
+                flagged['Comment_Detail'] = f"Predicted: {flagged['_pred_path'].str[:60]} (conf: {flagged['_pred_conf'].round(2).astype(str)})"
                 flagged['Suggested_Category'] = flagged['_pred_path']
                 flagged['Confidence']         = flagged['_pred_conf'].round(3)
 
@@ -1067,7 +1077,7 @@ def check_miscellaneous_category(data: pd.DataFrame, categories_list: list = Non
 
         return check_wrong_category(data, categories_list, compiled_rules=compiled_rules, cat_path_to_code=cat_path_to_code, code_to_path=code_to_path)
     except Exception as _e:
-        logger.warning("check_miscellaneous_category engine error: %s", _e)
+        logger.warning(f"check_miscellaneous_category engine error: {_e}")
         return pd.DataFrame(columns=data.columns)
 
 def check_restricted_brands(data: pd.DataFrame, country_rules: List[Dict]) -> pd.DataFrame:
@@ -1099,7 +1109,7 @@ def check_restricted_brands(data: pd.DataFrame, country_rules: List[Dict]) -> pd
                     text_to_check = d.loc[idx, '_brand_lower'] if var_brand_matches[idx] else d.loc[idx, '_name_lower']
                     for var in sorted_vars:
                         if var in text_to_check:
-                            match_details[idx] = ('variation', "{} (as '{}')".format(brand_raw, var))
+                            match_details[idx] = ('variation', f"{brand_raw} (as '{var}')")
                             break
             current_match_mask = current_match_mask | var_brand_matches | var_name_matches
         if not current_match_mask.any(): continue
@@ -1112,7 +1122,7 @@ def check_restricted_brands(data: pd.DataFrame, country_rules: List[Dict]) -> pd
                 flagged_indices.add(idx)
                 match_type, match_info = match_details.get(idx, ('unknown', brand_raw))
                 seller_status = "Seller not in approved list" if rule['sellers'] else "No sellers approved"
-                comment_map[idx] = "Restricted Brand: {} - {}".format(match_info, seller_status)
+                comment_map[idx] = f"Restricted Brand: {match_info} - {seller_status}"
     if not flagged_indices: return pd.DataFrame(columns=data.columns)
     result = data.loc[list(flagged_indices)].copy()
     result['Comment_Detail'] = result.index.map(comment_map)
@@ -1138,9 +1148,9 @@ def check_prohibited_products(data: pd.DataFrame, prohibited_rules: List[Dict]) 
         for idx in current_match.index:
             flagged_indices.add(idx)
             existing_comment = comment_map.get(idx, "Prohibited:")
-            if keyword not in existing_comment: comment_map[idx] = "{} {},".format(existing_comment, keyword)
+            if keyword not in existing_comment: comment_map[idx] = f"{existing_comment} {keyword},"
             raw_name = str(d.loc[idx, 'NAME'])
-            highlighted = pattern.sub(lambda m: "[!]{}[!]".format(m.group(0)), raw_name)
+            highlighted = pattern.sub(lambda m: f"[!]{m.group(0)}[!]", raw_name)
             name_replacements[idx] = highlighted
     if not flagged_indices: return pd.DataFrame(columns=data.columns)
     result = data.loc[list(flagged_indices)].copy()
@@ -1201,7 +1211,7 @@ def check_refurb_seller_approval(data: pd.DataFrame, refurb_data: dict, country_
             ptype = "Phone" if row['_cat'] in phone_cats else "Laptop"
             match = kw_pattern.search(row['_name'])
             kw_found = match.group(0) if match else "?"
-            return "Unapproved {} refurb seller - keyword '{}' in name (cat: {})".format(ptype, kw_found, row['_cat'])
+            return f"Unapproved {ptype} refurb seller - keyword '{kw_found}' in name (cat: {row['_cat']})"
         flagged['Comment_Detail'] = flagged.apply(build_comment, axis=1)
     flagged = flagged.drop(columns=['_cat', '_seller', '_name'], errors='ignore')
     return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
@@ -1258,8 +1268,8 @@ def check_seller_approved_for_perfume(data: pd.DataFrame, perfume_category_codes
     if not flagged.empty:
         def describe(row):
             b, n = str(row['BRAND']).strip(), str(row['NAME']).strip()[:40]
-            if b.lower() in GENERIC_PLACEHOLDERS: return "Sneaky brand in name: '{}'".format(n)
-            return "Sensitive brand '{}' - seller not approved".format(b)
+            if b.lower() in GENERIC_PLACEHOLDERS: return f"Sneaky brand in name: '{n}'"
+            return f"Sensitive brand '{b}' - seller not approved"
         flagged['Comment_Detail'] = flagged.apply(describe, axis=1)
     return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
 
@@ -1301,7 +1311,7 @@ def check_counterfeit_jerseys(data: pd.DataFrame, jerseys_data: Dict, country_co
         def build_comment(row):
             match = kw_pattern.search(row["_name"])
             kw_found = match.group(0) if match else "?"
-            return "Suspected counterfeit jersey - keyword '{}' (cat: {})".format(kw_found, row['_cat'])
+            return f"Suspected counterfeit jersey - keyword '{kw_found}' (cat: {row['_cat']})"
         flagged["Comment_Detail"] = flagged.apply(build_comment, axis=1)
     return flagged.drop(columns=["_cat", "_seller", "_name"], errors="ignore").drop_duplicates(subset=["PRODUCT_SET_SID"])
 
@@ -1317,7 +1327,7 @@ def check_unnecessary_words(data: pd.DataFrame, pattern: re.Pattern) -> pd.DataF
             return ", ".join(set(m.lower() for m in matches if isinstance(m, str)))
         def highlight_matches(text):
             if pd.isna(text): return text
-            return pattern.sub(lambda m: "[*]{}[*]".format(m.group(0)), str(text))
+            return pattern.sub(lambda m: f"[*]{m.group(0)}[*]", str(text))
         flagged['Comment_Detail'] = "Unnecessary: " + flagged['NAME'].apply(get_matches)
         flagged['NAME'] = flagged['NAME'].apply(highlight_matches)
     return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
@@ -1328,7 +1338,7 @@ def check_single_word_name(data: pd.DataFrame, book_category_codes: List[str], b
     non_books   = data[~data['CATEGORY_CODE'].apply(clean_category_code).isin(cat_codes)]
     word_counts = non_books['NAME'].astype(str).str.split().str.len()
     flagged     = non_books[word_counts <= 2].copy()
-    if not flagged.empty: flagged['Comment_Detail'] = "Name too short (" + word_counts[flagged.index].astype(str) + " word(s)) - use format: Name - Type - Colour"
+    if not flagged.empty: flagged['Comment_Detail'] = f"Name too short ({word_counts[flagged.index].astype(str)} word(s)) - use format: Name - Type - Colour"
     return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
 
 def check_generic_brand_issues(data: pd.DataFrame, valid_category_codes_fas: List[str]) -> pd.DataFrame:
@@ -1442,7 +1452,7 @@ def check_duplicate_products(data: pd.DataFrame, exempt_categories: List[str] = 
     if not dup_mask.any(): return pd.DataFrame(columns=data.columns)
     first_occurrence = d[first_seen_mask].set_index('_dedup_key')['NAME']
     rdf = d[dup_mask].copy()
-    rdf['Comment_Detail'] = rdf['_dedup_key'].map(lambda k: "Duplicate: '{}'".format(str(first_occurrence.get(k, ''))[:40]))
+    rdf['Comment_Detail'] = rdf['_dedup_key'].map(lambda k: f"Duplicate: '{str(first_occurrence.get(k, ''))[:40]}'")
     base_cols  = data.columns.tolist()
     extra_cols = [c for c in ['Comment_Detail'] if c not in base_cols]
     return rdf[base_cols + extra_cols].drop_duplicates(subset=['PRODUCT_SET_SID'])
@@ -1472,10 +1482,10 @@ def check_nigeria_books(data: pd.DataFrame, ng_rules: Dict) -> pd.DataFrame:
             if book_name in name_l:
                 if allowed_seller is None:
                     flagged_idx.append(idx)
-                    comment_map[idx] = "No seller authorised for book: '{}'".format(book_name[:60])
+                    comment_map[idx] = f"No seller authorised for book: '{book_name[:60]}'"
                 elif seller_l != allowed_seller:
                     flagged_idx.append(idx)
-                    comment_map[idx] = "Only '{}' may sell '{}'".format(allowed_seller, book_name[:40])
+                    comment_map[idx] = f"Only '{allowed_seller}' may sell '{book_name[:40]}'"
                 break
     if not flagged_idx: return pd.DataFrame(columns=data.columns)
     result = data.loc[flagged_idx].copy()
@@ -1498,7 +1508,7 @@ def check_nigeria_tvs(data: pd.DataFrame, ng_rules: Dict) -> pd.DataFrame:
         if brand_rows.empty: continue
         bad = brand_rows[~brand_rows["_seller_l"].isin(approved)].copy()
         if not bad.empty:
-            bad["Comment_Detail"] = "Seller not authorised for {} TVs: ".format(brand_lower.upper()) + bad["SELLER_NAME"].astype(str)
+            bad["Comment_Detail"] = f"Seller not authorised for {brand_lower.upper()} TVs: " + bad["SELLER_NAME"].astype(str)
             chunks.append(bad)
     if not chunks: return pd.DataFrame(columns=data.columns)
     return pd.concat(chunks).drop_duplicates(subset=["PRODUCT_SET_SID"])
@@ -1540,7 +1550,7 @@ def check_nigeria_xmas_tree(data: pd.DataFrame, ng_rules: Dict) -> pd.DataFrame:
         def _comment(row):
             m = kw_pattern.search(str(row["NAME"]))
             kw = m.group(0) if m else "?"
-            return "Seller not authorised for Xmas Tree products (keyword '{}'): {}".format(kw, row['SELLER_NAME'])
+            return f"Seller not authorised for Xmas Tree products (keyword '{kw}'): {row['SELLER_NAME']}"
         flagged["Comment_Detail"] = flagged.apply(_comment, axis=1)
     return flagged.drop_duplicates(subset=["PRODUCT_SET_SID"])
 
@@ -1561,7 +1571,7 @@ def check_nigeria_rice(data: pd.DataFrame, ng_rules: Dict) -> pd.DataFrame:
         if brand_rows.empty: continue
         bad = brand_rows[~brand_rows["_seller_l"].isin(approved)].copy()
         if not bad.empty:
-            bad["Comment_Detail"] = "Seller not authorised to sell {} rice: ".format(brand_lower.title()) + bad["SELLER_NAME"].astype(str)
+            bad["Comment_Detail"] = f"Seller not authorised to sell {brand_lower.title()} rice: " + bad["SELLER_NAME"].astype(str)
             chunks.append(bad)
     if not chunks: return pd.DataFrame(columns=data.columns)
     return pd.concat(chunks).drop_duplicates(subset=["PRODUCT_SET_SID"])
@@ -1593,8 +1603,7 @@ def check_nigeria_powerbanks(data: pd.DataFrame, ng_rules: Dict) -> pd.DataFrame
         def _comment(row):
             m = _mah_pat.search(row["_name"])
             mah_str = m.group(0) if m else ">=20,000mAh"
-            return "Brand '{}' not approved for {} powerbanks. Approved: {}".format(
-                row['BRAND'], mah_str, ', '.join(b.title() for b in sorted(allowed_brands)))
+            return f"Brand '{row['BRAND']}' not approved for {mah_str} powerbanks. Approved: {', '.join(b.title() for b in sorted(allowed_brands))}"
         flagged["Comment_Detail"] = flagged.apply(_comment, axis=1)
     return flagged[[c for c in data.columns if c in flagged.columns] + ["Comment_Detail"]].drop_duplicates(subset=["PRODUCT_SET_SID"])
 
@@ -1704,7 +1713,7 @@ def validate_products(data: pd.DataFrame, support_files: Dict, country_validator
                 if name in ["Generic BRAND Issues", "Fashion brand issues"]: ckwargs['valid_category_codes_fas'] = support_files.get('category_fas', [])
                 if name == "Fashion brand issues": ckwargs['code_to_path'] = support_files.get('code_to_path', {})
                 flag_hash = compute_flag_input_hash(data, name, ckwargs)
-                cache_path = os.path.join(FLAG_CACHE_DIR, "{}.pkl".format(flag_hash))
+                cache_path = os.path.join(FLAG_CACHE_DIR, f"{flag_hash}.pkl")
                 future_to_name[executor.submit(run_cached_check, func, cache_path, ckwargs)] = name
 
             for future in concurrent.futures.as_completed(future_to_name):
@@ -1726,14 +1735,14 @@ def validate_products(data: pd.DataFrame, support_files: Dict, country_validator
                     else:
                         if name not in results: results[name] = pd.DataFrame(columns=data.columns)
                 except Exception as e:
-                    logger.error("Validation error in '{}': {}".format(name, e))
+                    logger.error(f"Validation error in '{name}': {e}")
                     validation_errors.append((name, str(e)))
                     if name not in results: results[name] = pd.DataFrame(columns=data.columns)
 
     if validation_errors:
-        st.warning("{} validation checks encountered errors.".format(len(validation_errors)))
+        st.warning(f"{len(validation_errors)} validation checks encountered errors.")
         with st.expander("View Error Details"):
-            for e_name, e_msg in validation_errors: st.error("**{}**: {}".format(e_name, e_msg))
+            for e_name, e_msg in validation_errors: st.error(f"**{e_name}**: {e_msg}")
     if restricted_keys:
         data['match_key'] = data.apply(create_match_key, axis=1)
         for fname, keys in restricted_keys.items():
@@ -1747,7 +1756,7 @@ def validate_products(data: pd.DataFrame, support_files: Dict, country_validator
     for name, _, _ in validations:
         if name not in results or results[name].empty or 'PRODUCT_SET_SID' not in results[name].columns: continue
         res = results[name]
-        rinfo = flags_mapping.get(name, {'reason': "1000007 - Other Reason", 'en': "Flagged by {}".format(name), 'fr': "Flagged by {}".format(name), 'ar': "Flagged by {}".format(name)})
+        rinfo = flags_mapping.get(name, {'reason': "1000007 - Other Reason", 'en': f"Flagged by {name}", 'fr': f"Flagged by {name}", 'ar': f"Flagged by {name}"})
         base_comment = rinfo.get(target_lang, rinfo.get('en'))
         res['PRODUCT_SET_SID'] = res['PRODUCT_SET_SID'].astype(str).str.strip()
         flagged = pd.merge(res[['PRODUCT_SET_SID', 'Comment_Detail']] if 'Comment_Detail' in res.columns else res[['PRODUCT_SET_SID']], data, on='PRODUCT_SET_SID', how='left')
@@ -1759,7 +1768,7 @@ def validate_products(data: pd.DataFrame, support_files: Dict, country_validator
             if sid in processed: continue
             processed.add(sid)
             det = r.get('Comment_Detail', '')
-            comment_str = "{} ({})".format(base_comment, det) if pd.notna(det) and det else base_comment
+            comment_str = f"{base_comment} ({det})" if pd.notna(det) and det else base_comment
             rows.append({'ProductSetSid': sid, 'ParentSKU': r.get('PARENTSKU', ''), 'Status': 'Rejected', 'Reason': rinfo['reason'], 'Comment': comment_str, 'FLAG': name, 'SellerName': r.get('SELLER_NAME', '')})
 
     for _, r in data[~data['PRODUCT_SET_SID'].astype(str).str.strip().isin(processed)].iterrows():
@@ -1774,7 +1783,7 @@ def validate_products(data: pd.DataFrame, support_files: Dict, country_validator
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def cached_validate_products(data_hash: str, _data: pd.DataFrame, _support_files: Dict, country_code: str, data_has_warranty_cols: bool, skip_validators: Optional[List[str]] = None):
-    country_name = next((k for k, v in CountryValidator.COUNTRY_CONFIG.items() if v['code'] == country_code), "Kenya")
+    country_name = next((k for k, v in CountryValidator.COUNTRY_CONFIG.items() if v.get('code') == country_code), "Kenya")
     cv = CountryValidator(country_name)
     return validate_products(_data, _support_files, cv, data_has_warranty_cols, skip_validators=skip_validators)
 
@@ -1815,40 +1824,51 @@ def generate_smart_export(df, filename_prefix, export_type='simple', auxiliary_d
     cols = FULL_DATA_COLS + [c for c in ["Status", "Reason", "Comment", "FLAG", "SellerName"] if c not in FULL_DATA_COLS] if export_type == 'full' else PRODUCTSETS_COLS
     if len(df) <= SPLIT_LIMIT:
         data = write_excel_single(df, "ProductSets", cols, auxiliary_df, "RejectionReasons", REJECTION_REASONS_COLS, True, export_type == 'full')
-        return data, "{}.xlsx".format(filename_prefix), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        return data, f"{filename_prefix}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
         zb = BytesIO()
         with zipfile.ZipFile(zb, "w", zipfile.ZIP_DEFLATED) as zf:
             for i in range(0, len(df), SPLIT_LIMIT):
                 chunk = df.iloc[i : i + SPLIT_LIMIT]
                 excel_data = write_excel_single(chunk, "ProductSets", cols, auxiliary_df, "RejectionReasons", REJECTION_REASONS_COLS, True, export_type == 'full')
-                zf.writestr("{}_Part_{}.xlsx".format(filename_prefix, (i//SPLIT_LIMIT)+1), excel_data.getvalue())
+                zf.writestr(f"{filename_prefix}_Part_{(i//SPLIT_LIMIT)+1}.xlsx", excel_data.getvalue())
         zb.seek(0)
-        return zb, "{}.zip".format(filename_prefix), "application/zip"
+        return zb, f"{filename_prefix}.zip", "application/zip"
 
 def prepare_full_data_merged(data_df, final_report_df):
     try:
         d_cp, r_cp = data_df.copy(), final_report_df.copy()
         d_cp['PRODUCT_SET_SID'] = d_cp['PRODUCT_SET_SID'].astype(str).str.strip()
         r_cp['ProductSetSid'] = r_cp['ProductSetSid'].astype(str).str.strip()
+        
         _code_to_path = st.session_state.get('support_files', {}).get('code_to_path', {})
         if _code_to_path and 'CATEGORY_CODE' in d_cp.columns:
-            d_cp['FULL_CATEGORY_PATH'] = d_cp['CATEGORY_CODE'].apply(lambda c: _code_to_path.get(str(c).strip(), '') if pd.notna(c) else '')
+            d_cp['FULL_CATEGORY_PATH'] = d_cp['CATEGORY_CODE'].apply(
+                lambda c: _code_to_path.get(str(c).strip(), '') if pd.notna(c) else ''
+            )
         else:
             d_cp['FULL_CATEGORY_PATH'] = ''
-        merged = pd.merge(d_cp, r_cp[["ProductSetSid", "Status", "Reason", "Comment", "FLAG", "SellerName"]], left_on="PRODUCT_SET_SID", right_on="ProductSetSid", how='left')
-        if 'ProductSetSid' in merged.columns: merged.drop(columns=['ProductSetSid'], inplace=True)
+            
+        merged = pd.merge(
+            d_cp, 
+            r_cp[["ProductSetSid", "Status", "Reason", "Comment", "FLAG", "SellerName"]], 
+            left_on="PRODUCT_SET_SID", right_on="ProductSetSid", how='left'
+        )
+        
+        if 'ProductSetSid' in merged.columns: 
+            merged.drop(columns=['ProductSetSid'], inplace=True)
+            
         return merged
+        
     except Exception as e:
-        logger.error("prepare_full_data_merged: {}".format(e))
+        logger.error(f"prepare_full_data_merged: {e}")
         return pd.DataFrame()
 
-
 # ==========================================
-# APP UI AND EXECUTION
+# 4. APP UI AND EXECUTION 
 # ==========================================
 
-st.header(":material/upload_file: {}".format(_t('upload_files')), anchor=False)
+st.header(f":material/upload_file: {_t('upload_files')}", anchor=False)
 
 uploaded_files = st.file_uploader("", type=['csv', 'xlsx'], accept_multiple_files=True, key="daily_files")
 
@@ -1870,9 +1890,12 @@ elif uploaded_files is not None and len(uploaded_files) == 0:
 
 _files_for_processing = st.session_state.get("cached_uploaded_files", [])
 
+# SAFELY EXTRACT CODE
+c_code = getattr(country_validator, 'code', 'KE')
+
 if _files_for_processing:
     current_file_signature = sorted([f["name"] + hashlib.md5(f["bytes"]).hexdigest() for f in _files_for_processing])
-    process_signature = str(current_file_signature) + "_{}".format(country_validator.code)
+    process_signature = str(current_file_signature) + f"_{c_code}"
 else:
     process_signature = "empty"
 
@@ -1907,8 +1930,8 @@ if st.session_state.get('last_processed_files') != process_signature:
         _engine_for_cache = _get_cat_matcher_engine() if _CAT_MATCHER_AVAILABLE else None
         _learning_stamp   = str(len(_engine_for_cache.learning_db)) if _engine_for_cache else "0"
         sig_hash = hashlib.md5((process_signature + _learning_stamp).encode()).hexdigest()
-        cached_data = load_df_parquet("{}_data.parquet".format(sig_hash))
-        cached_report = load_df_parquet("{}_report.parquet".format(sig_hash))
+        cached_data = load_df_parquet(f"{sig_hash}_data.parquet")
+        cached_report = load_df_parquet(f"{sig_hash}_report.parquet")
 
         if cached_data is not None and cached_report is not None:
             st.session_state.final_report = cached_report
@@ -1954,7 +1977,7 @@ if st.session_state.get('last_processed_files') != process_signature:
                     if is_valid:
                         data_filtered, det_names = filter_by_country(data_prop, country_validator)
                         if data_filtered.empty:
-                            st.error("No {} products found.".format(country_validator.country), icon=":material/error:")
+                            st.error(f"No {country_validator.country} products found.", icon=":material/error:")
                             st.stop()
                         actual_counts = data_filtered.groupby('PRODUCT_SET_SID')['PRODUCT_SET_SID'].transform('count')
                         if 'COUNT_VARIATIONS' in data_filtered.columns:
@@ -1969,26 +1992,26 @@ if st.session_state.get('last_processed_files') != process_signature:
                             if c in data.columns: data[c] = data[c].astype(str).fillna('')
                         if 'COLOR_FAMILY' not in data.columns: data['COLOR_FAMILY'] = ""
 
-                        data_hash = df_hash(data) + country_validator.code
-                        final_report, _ = cached_validate_products(data_hash, data, support_files, country_validator.code, data_has_warranty)
+                        data_hash = df_hash(data) + c_code
+                        final_report, _ = cached_validate_products(data_hash, data, support_files, c_code, data_has_warranty)
 
                         st.session_state.final_report = final_report
                         st.session_state.all_data_map = data
                         st.session_state.last_processed_files = process_signature
 
-                        save_df_parquet(data, "{}_data.parquet".format(sig_hash))
-                        save_df_parquet(final_report, "{}_report.parquet".format(sig_hash))
+                        save_df_parquet(data, f"{sig_hash}_data.parquet")
+                        save_df_parquet(final_report, f"{sig_hash}_report.parquet")
                     else:
                         for e in errors: st.error(e)
                         st.session_state.last_processed_files = "error"
             except Exception as e:
-                st.error("Processing error: {}".format(e))
+                st.error(f"Processing error: {e}")
                 st.code(traceback.format_exc())
                 st.session_state.last_processed_files = "error"
 
 _bridge_val = st.text_input(
     "jtbridge", value="", placeholder="JTBRIDGE_UNIQUE_DO_NOT_USE",
-    key="main_bridge_{}".format(st.session_state.main_bridge_counter), label_visibility="collapsed",
+    key=f"main_bridge_{st.session_state.main_bridge_counter}", label_visibility="collapsed",
 )
 if _bridge_val:
     try:
@@ -2010,7 +2033,7 @@ if _bridge_val:
                     _total += len(_sids)
                 st.session_state.exports_cache.clear()
                 st.session_state.display_df_cache.clear()
-                st.session_state.main_toasts.append(("Rejected {} product(s)".format(_total), ":material/block:"))
+                st.session_state.main_toasts.append((f"Rejected {_total} product(s)", ":material/block:"))
                 st.session_state.main_bridge_counter += 1
                 st.session_state.do_scroll_top = False
                 st.rerun()
@@ -2025,7 +2048,7 @@ if _bridge_val:
                 st.session_state.main_bridge_counter += 1
                 st.session_state.do_scroll_top = False
                 st.rerun()
-    except Exception as _e: logger.error("Bridge parse error: {}".format(_e))
+    except Exception as _e: logger.error(f"Bridge parse error: {_e}")
 
 if _files_for_processing and not st.session_state.final_report.empty and st.session_state.file_mode != 'post_qc':
     fr = st.session_state.final_report
@@ -2033,7 +2056,7 @@ if _files_for_processing and not st.session_state.final_report.empty and st.sess
     app_df = fr[fr['Status'] == 'Approved']
     rej_df = fr[fr['Status'] == 'Rejected']
 
-    st.header(":material/bar_chart: {}".format(_t('val_results')), anchor=False)
+    st.header(f":material/bar_chart: {_t('val_results')}", anchor=False)
 
     with st.container(border=True):
         cols = st.columns(5 if st.session_state.layout_mode == "wide" else 3)
@@ -2044,33 +2067,33 @@ if _files_for_processing and not st.session_state.final_report.empty and st.sess
             (_t("total_prod"),  len(data), JUMIA_COLORS['dark_gray']),
             (_t("approved"),    len(app_df), JUMIA_COLORS['success_green']),
             (_t("rejected"),    len(rej_df), JUMIA_COLORS['jumia_red']),
-            (_t("rej_rate"),    "{:.1f}%".format((len(rej_df)/len(data)*100) if len(data)>0 else 0), JUMIA_COLORS['primary_orange']),
+            (_t("rej_rate"),    f"{(len(rej_df)/len(data)*100) if len(data)>0 else 0:.1f}%", JUMIA_COLORS['primary_orange']),
             (_t("multi_skus") if is_nigeria else _t("common_skus"), multi_count if is_nigeria else st.session_state.intersection_count, JUMIA_COLORS['warning_yellow'] if is_nigeria else JUMIA_COLORS['medium_gray']),
         ]
         for i, (label, value, color) in enumerate(metrics_config):
             with cols[i % len(cols)]:
-                st.markdown("<div style='height:5px;background:{};border-radius:6px 6px 0 0;'></div>".format(color), unsafe_allow_html=True)
+                st.markdown(f"<div style='height:5px;background:{color};border-radius:6px 6px 0 0;'></div>", unsafe_allow_html=True)
                 st.metric(label=label, value=value)
 
-    st.subheader(":material/flag: {}".format(_t('flags_breakdown')), anchor=False)
+    st.subheader(f":material/flag: {_t('flags_breakdown')}", anchor=False)
     if not rej_df.empty:
         if not st.session_state.flags_expanded_initialized and not rej_df.empty:
             top_flag = rej_df['FLAG'].value_counts().index[0]
-            st.session_state["exp_{}".format(top_flag)] = True
+            st.session_state[f"exp_{top_flag}"] = True
             st.session_state.flags_expanded_initialized = True
 
         for title in rej_df['FLAG'].unique():
             df_flagged = rej_df[rej_df['FLAG'] == title]
-            with st.expander("{} ({})".format(title, len(df_flagged)), key="exp_{}".format(title)):
+            with st.expander(f"{title} ({len(df_flagged)})", key=f"exp_{title}"):
                 render_flag_expander(title, df_flagged, data, all(c in data.columns for c in ['PRODUCT_WARRANTY', 'WARRANTY_DURATION']), support_files, country_validator)
     else:
-        st.success("All products passed validation - no rejections found.")
+        st.success("All products passed validation — no rejections found.")
 
 @st.fragment
 def render_image_grid():
     if st.session_state.final_report.empty or st.session_state.file_mode == "post_qc": return
     st.markdown("---")
-    st.header(":material/pageview: {}".format(_t('manual_review')), anchor=False)
+    st.header(f":material/pageview: {_t('manual_review')}", anchor=False)
 
     fr   = st.session_state.final_report
     data = st.session_state.all_data_map
@@ -2079,8 +2102,8 @@ def render_image_grid():
     valid_grid_df = fr[mask]
 
     c1, c2, c3 = st.columns([1.5, 1.5, 2])
-    with c1: search_n  = st.text_input("Search by Name", placeholder="Product name...")
-    with c2: search_sc = st.text_input("Search by Seller/Category", placeholder="Seller or Category...")
+    with c1: search_n  = st.text_input("Search by Name", placeholder="Product name…")
+    with c2: search_sc = st.text_input("Search by Seller/Category", placeholder="Seller or Category…")
     with c3:
         st.session_state.grid_items_per_page = st.select_slider("Items per page", options=[20, 50, 100, 200], value=st.session_state.grid_items_per_page)
 
@@ -2106,18 +2129,18 @@ def render_image_grid():
 
     pg_cols = st.columns([1, 2, 1], vertical_alignment="center")
     with pg_cols[0]:
-        if st.button("Prev Page", use_container_width=True, disabled=st.session_state.grid_page == 0):
+        if st.button("◀ Prev Page", use_container_width=True, disabled=st.session_state.grid_page == 0):
             st.session_state.grid_page = max(0, st.session_state.grid_page - 1)
             st.session_state.do_scroll_top = True
             st.rerun(scope="fragment")
     with pg_cols[1]:
-        new_page = st.number_input("Jump to Page (Total: {} | {} items)".format(total_pages, len(review_data)), min_value=1, max_value=max(1, total_pages), value=st.session_state.grid_page + 1, step=1)
+        new_page = st.number_input(f"Jump to Page (Total: {total_pages} | {len(review_data)} items)", min_value=1, max_value=max(1, total_pages), value=st.session_state.grid_page + 1, step=1)
         if new_page - 1 != st.session_state.grid_page:
             st.session_state.grid_page = new_page - 1
             st.session_state.do_scroll_top = True
             st.rerun(scope="fragment")
     with pg_cols[2]:
-        if st.button("Next Page", use_container_width=True, disabled=st.session_state.grid_page >= total_pages - 1):
+        if st.button("Next Page ▶", use_container_width=True, disabled=st.session_state.grid_page >= total_pages - 1):
             st.session_state.grid_page += 1
             st.session_state.do_scroll_top = True
             st.rerun(scope="fragment")
@@ -2146,28 +2169,19 @@ def render_exports_section():
     data    = st.session_state.all_data_map
     app_df  = fr[fr['Status'] == 'Approved']
     rej_df  = fr[fr['Status'] == 'Rejected']
-    c_code  = st.session_state.selected_country[:2].upper()
+    
+    c_code = getattr(country_validator, 'code', 'KE')
     date_str = datetime.now().strftime('%Y-%m-%d')
     reasons_df = support_files.get('reasons', pd.DataFrame())
 
     st.markdown("---")
-    st.markdown(
-        "<div style='background: linear-gradient(135deg, {primary_orange}, {secondary_orange}); padding: 20px 24px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(246, 139, 30, 0.25);'>"
-        "<h2 style='color: white; margin: 0; font-size: 24px; font-weight: 700;'>{title}</h2>"
-        "<p style='color: rgba(255,255,255,0.9); margin: 6px 0 0 0; font-size: 13px;'>Export validation results in Excel or ZIP format</p>"
-        "</div>".format(
-            primary_orange=JUMIA_COLORS['primary_orange'],
-            secondary_orange=JUMIA_COLORS['secondary_orange'],
-            title=_t('download_reports'),
-        ),
-        unsafe_allow_html=True
-    )
+    st.markdown(f"""<div style='background: linear-gradient(135deg, {JUMIA_COLORS['primary_orange']}, {JUMIA_COLORS['secondary_orange']}); padding: 20px 24px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(246, 139, 30, 0.25);'><h2 style='color: white; margin: 0; font-size: 24px; font-weight: 700;'>{_t('download_reports')}</h2><p style='color: rgba(255,255,255,0.9); margin: 6px 0 0 0; font-size: 13px;'>Export validation results in Excel or ZIP format</p></div>""", unsafe_allow_html=True)
 
     exports_config = [
-        ("PIM Export",    fr,     'Complete validation report with all statuses', lambda df: generate_smart_export(df, "{}_PIM_Export_{}".format(c_code, date_str), 'simple', reasons_df)),
-        ("Rejected Only", rej_df, 'Products that failed validation',              lambda df: generate_smart_export(df, "{}_Rejected_{}".format(c_code, date_str), 'simple', reasons_df)),
-        ("Approved Only", app_df, 'Products that passed validation',              lambda df: generate_smart_export(df, "{}_Approved_{}".format(c_code, date_str), 'simple', reasons_df)),
-        ("Full Data",     data,   'Complete dataset with validation flags',       lambda df: generate_smart_export(prepare_full_data_merged(df, fr), "{}_Full_{}".format(c_code, date_str), 'full')),
+        ("PIM Export",    fr,     'Complete validation report with all statuses', lambda df: generate_smart_export(df, f"{c_code}_PIM_Export_{date_str}", 'simple', reasons_df)),
+        ("Rejected Only", rej_df, 'Products that failed validation',              lambda df: generate_smart_export(df, f"{c_code}_Rejected_{date_str}", 'simple', reasons_df)),
+        ("Approved Only", app_df, 'Products that passed validation',              lambda df: generate_smart_export(df, f"{c_code}_Approved_{date_str}", 'simple', reasons_df)),
+        ("Full Data",     data,   'Complete dataset with validation flags',       lambda df: generate_smart_export(prepare_full_data_merged(df, fr), f"{c_code}_Full_{date_str}", 'full')),
     ]
 
     all_cached = all(title in st.session_state.exports_cache for title, _, _, _ in exports_config)
@@ -2176,7 +2190,7 @@ def render_exports_section():
         st.success("All reports generated and ready to download.", icon=":material/check_circle:")
     else:
         if st.button("Generate All Reports", type="primary", icon=":material/download:", use_container_width=True):
-            with st.spinner("Generating all reports..."):
+            with st.spinner("Generating all reports…"):
                 for t2, d2, _desc2, f2 in exports_config:
                     if t2 not in st.session_state.exports_cache:
                         res, fname, mime = f2(d2)
@@ -2191,23 +2205,10 @@ def render_exports_section():
                 title, df, desc, func = exports_config[i + j]
                 with col:
                     with st.container(border=True):
-                        st.markdown(
-                            "<div style='text-align:center;margin-bottom:15px;'>"
-                            "<div style='font-size:18px;font-weight:700;'>{title}</div>"
-                            "<div style='font-size:11px;margin-top:4px;opacity:0.7;'>{desc}</div>"
-                            "<div style='background:{light_gray};color:{primary_orange};padding:8px;border-radius:6px;margin-top:12px;font-weight:600;'>{rows:,} rows</div>"
-                            "</div>".format(
-                                title=title,
-                                desc=desc,
-                                light_gray=JUMIA_COLORS['light_gray'],
-                                primary_orange=JUMIA_COLORS['primary_orange'],
-                                rows=len(df),
-                            ),
-                            unsafe_allow_html=True
-                        )
+                        st.markdown(f"""<div style='text-align:center;margin-bottom:15px;'><div style='font-size:18px;font-weight:700;'>{title}</div><div style='font-size:11px;margin-top:4px;opacity:0.7;'>{desc}</div><div style='background:{JUMIA_COLORS['light_gray']};color:{JUMIA_COLORS['primary_orange']};padding:8px;border-radius:6px;margin-top:12px;font-weight:600;'>{len(df):,} rows</div></div>""", unsafe_allow_html=True)
                         if title not in st.session_state.exports_cache:
-                            if st.button("Generate", key="gen_{}".format(title), type="primary", use_container_width=True, icon=":material/download:"):
-                                with st.spinner("Generating all reports..."):
+                            if st.button("Generate", key=f"gen_{title}", type="primary", use_container_width=True, icon=":material/download:"):
+                                with st.spinner("Generating all reports…"):
                                     for t2, d2, _desc2, f2 in exports_config:
                                         if t2 not in st.session_state.exports_cache:
                                             res, fname, mime = f2(d2)
@@ -2215,8 +2216,8 @@ def render_exports_section():
                                 st.rerun()
                         else:
                             cache = st.session_state.exports_cache[title]
-                            st.download_button("Download", data=cache["data"], file_name=cache["fname"], mime=cache["mime"], use_container_width=True, type="primary", icon=":material/file_download:", key="dl_{}".format(title))
-                            if st.button("Clear", key="clr_{}".format(title), use_container_width=True):
+                            st.download_button("Download", data=cache["data"], file_name=cache["fname"], mime=cache["mime"], use_container_width=True, type="primary", icon=":material/file_download:", key=f"dl_{title}")
+                            if st.button("Clear", key=f"clr_{title}", use_container_width=True):
                                 del st.session_state.exports_cache[title]
                                 st.rerun()
 
