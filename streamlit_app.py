@@ -28,10 +28,11 @@ try:
 except ImportError:
     pass
 
-try:
-    import _preqc_registry as _reg
-except ImportError:
-    _reg = None
+class DummyRegistry:
+    pass
+
+_reg = DummyRegistry()
+_reg.REGISTRY = {}
 
 try:
     from jumia_scraper import enrich_post_qc_df, COUNTRY_BASE_URLS as _SCRAPER_URLS
