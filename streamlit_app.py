@@ -23,6 +23,7 @@ from PIL import Image
 
 from translations import LANGUAGES, get_translation
 
+# ── Safe Imports for Custom Modules ───────────────────────────────────────────
 try:
     from postqc import detect_file_type, normalize_post_qc, run_checks as run_post_qc_checks, render_post_qc_section, load_category_map
 except Exception as e:
@@ -49,7 +50,6 @@ except Exception as e:
     logging.warning(f"Failed to import jumia_scraper: {e}")
     _SCRAPER_AVAILABLE = False
 
-# ── Category Matcher Engine ───────────────────────────────────────────────────
 try:
     from category_matcher_engine import CategoryMatcherEngine, check_wrong_category, get_engine
     _CAT_MATCHER_AVAILABLE = True
@@ -69,6 +69,7 @@ except Exception as e:
             flagged['Comment_Detail'] = "Category contains 'Miscellaneous'"
         return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
 
+# ── Background Engine Loading ─────────────────────────────────────────────────
 import threading as _threading
 
 _engine_ready    = _threading.Event()
@@ -113,6 +114,9 @@ if 'load_category_map' not in dir():
 
 logger = logging.getLogger(__name__)
 
+# -------------------------------------------------
+# CACHE DIRECTORIES & HELPERS
+# -------------------------------------------------
 PARQUET_CACHE_DIR = "app_cache_parquet"
 FLAG_CACHE_DIR = "app_cache_flags"
 os.makedirs(PARQUET_CACHE_DIR, exist_ok=True)
@@ -124,8 +128,6 @@ def prune_cache_dir(directory: str, max_files: int = 500):
         stale = files[:-max_files]
         for f in stale:
             f.unlink(missing_ok=True)
-        if stale:
-            logger.info(f"Pruned {len(stale)} stale cache files from {directory}")
     except Exception as e:
         logger.warning(f"Cache pruning failed for {directory}: {e}")
 
@@ -142,7 +144,7 @@ def save_df_parquet(df, filename):
     try:
         df.to_parquet(os.path.join(PARQUET_CACHE_DIR, filename))
     except Exception as e:
-        logger.warning(f"Failed to save parquet {filename}: {e}")
+        pass
 
 def load_df_parquet(filename):
     path = os.path.join(PARQUET_CACHE_DIR, filename)
@@ -150,7 +152,7 @@ def load_df_parquet(filename):
         try:
             return pd.read_parquet(path)
         except Exception as e:
-            logger.warning(f"Failed to load parquet {filename}: {e}")
+            pass
     return None
 
 JUMIA_COLORS = {
@@ -169,16 +171,12 @@ JUMIA_COLORS = {
 
 PRODUCTSETS_COLS = ["ProductSetSid", "ParentSKU", "Status", "Reason", "Comment", "FLAG", "SellerName"]
 REJECTION_REASONS_COLS = ['CODE - REJECTION_REASON', 'COMMENT']
-
 FULL_DATA_COLS = [
     "PRODUCT_SET_SID", "ACTIVE_STATUS_COUNTRY", "NAME", "BRAND", "CATEGORY", "CATEGORY_CODE",
-    "FULL_CATEGORY_PATH",
-    "COLOR", "COLOR_FAMILY", "MAIN_IMAGE", "VARIATION", "PARENTSKU", "SELLER_NAME", "SELLER_SKU",
+    "FULL_CATEGORY_PATH", "COLOR", "COLOR_FAMILY", "MAIN_IMAGE", "VARIATION", "PARENTSKU", "SELLER_NAME", "SELLER_SKU",
     "GLOBAL_PRICE", "GLOBAL_SALE_PRICE", "TAX_CLASS", "FLAG", "LISTING_STATUS",
-    "PRODUCT_WARRANTY", "WARRANTY_DURATION", "WARRANTY_ADDRESS", "WARRANTY_TYPE", "COUNT_VARIATIONS",
-    "LIST_VARIATIONS"
+    "PRODUCT_WARRANTY", "WARRANTY_DURATION", "WARRANTY_ADDRESS", "WARRANTY_TYPE", "COUNT_VARIATIONS", "LIST_VARIATIONS"
 ]
-
 GRID_COLS = ['PRODUCT_SET_SID', 'NAME', 'BRAND', 'CATEGORY', 'SELLER_NAME', 'MAIN_IMAGE', 'GLOBAL_SALE_PRICE', 'GLOBAL_PRICE', 'COLOR']
 
 COUNTRY_CURRENCY = {
@@ -198,8 +196,7 @@ def fetch_exchange_rate(country: str) -> float:
         with urllib.request.urlopen("https://open.er-api.com/v6/latest/USD", timeout=3) as r:
             data = _json.loads(r.read())
         return float(data["rates"].get(cfg["code"], 1.0))
-    except Exception as e:
-        logger.warning(f"Exchange rate fetch failed for {country}: {e}")
+    except Exception:
         fallbacks = {"Kenya": 128.0, "Uganda": 3750.0, "Nigeria": 1550.0, "Ghana": 15.5, "Morocco": 10.1}
         return fallbacks.get(country, 1.0)
 
@@ -213,196 +210,23 @@ def format_local_price(usd_price, country: str) -> str:
         symbol = cfg.get("symbol", "$")
         if cfg.get("code") in ("KES", "UGX", "NGN"): return f"{symbol} {local:,.0f}"
         else: return f"{symbol} {local:,.2f}"
-    except (ValueError, TypeError): return ""
+    except: return ""
 
 SPLIT_LIMIT = 9998
-
 NEW_FILE_MAPPING = {
-    'cod_productset_sid': 'PRODUCT_SET_SID',
-    "2qz3wx4ec5rv6b7hnj8kl;'[]": 'PRODUCT_SET_SID',
-    'dsc_name': 'NAME',
-    'dsc_brand_name': 'BRAND',
-    'cod_category_code': 'CATEGORY_CODE',
-    'dsc_category_name': 'CATEGORY',
-    'dsc_shop_seller_name': 'SELLER_NAME',
-    'dsc_shop_active_country': 'ACTIVE_STATUS_COUNTRY',
-    'cod_parent_sku': 'PARENTSKU',
-    'color': 'COLOR',
-    'colour': 'COLOR',
-    'color_family': 'COLOR_FAMILY',
-    'colour_family': 'COLOR_FAMILY',
-    'colour family': 'COLOR_FAMILY',
-    'color family': 'COLOR_FAMILY',
-    'COLOUR FAMILY': 'COLOR_FAMILY',
-    'list_seller_skus': 'SELLER_SKU',
-    'image1': 'MAIN_IMAGE',
-    'image_1': 'MAIN_IMAGE',
-    'main_image': 'MAIN_IMAGE',
-    'main image': 'MAIN_IMAGE',
-    'image': 'MAIN_IMAGE',
-    'img': 'MAIN_IMAGE',
-    'img_url': 'MAIN_IMAGE',
-    'image_url': 'MAIN_IMAGE',
-    'photo': 'MAIN_IMAGE',
-    'dsc_status': 'LISTING_STATUS',
-    'dsc_shop_email': 'SELLER_EMAIL',
-    'product_warranty': 'PRODUCT_WARRANTY',
-    'warranty_duration': 'WARRANTY_DURATION',
-    'warranty_address': 'WARRANTY_ADDRESS',
-    'warranty_type': 'WARRANTY_TYPE',
-    'count_variations': 'COUNT_VARIATIONS',
-    'count variations': 'COUNT_VARIATIONS',
-    'number of variations': 'COUNT_VARIATIONS',
-    'list_variations': 'LIST_VARIATIONS',
-    'list variations': 'LIST_VARIATIONS'
+    'cod_productset_sid': 'PRODUCT_SET_SID', "2qz3wx4ec5rv6b7hnj8kl;'[]": 'PRODUCT_SET_SID',
+    'dsc_name': 'NAME', 'dsc_brand_name': 'BRAND', 'cod_category_code': 'CATEGORY_CODE',
+    'dsc_category_name': 'CATEGORY', 'dsc_shop_seller_name': 'SELLER_NAME',
+    'dsc_shop_active_country': 'ACTIVE_STATUS_COUNTRY', 'cod_parent_sku': 'PARENTSKU',
+    'color': 'COLOR', 'colour': 'COLOR', 'color_family': 'COLOR_FAMILY', 'colour_family': 'COLOR_FAMILY',
+    'colour family': 'COLOR_FAMILY', 'color family': 'COLOR_FAMILY', 'COLOUR FAMILY': 'COLOR_FAMILY',
+    'list_seller_skus': 'SELLER_SKU', 'image1': 'MAIN_IMAGE', 'image_1': 'MAIN_IMAGE', 'main_image': 'MAIN_IMAGE',
+    'main image': 'MAIN_IMAGE', 'image': 'MAIN_IMAGE', 'img': 'MAIN_IMAGE', 'img_url': 'MAIN_IMAGE',
+    'image_url': 'MAIN_IMAGE', 'photo': 'MAIN_IMAGE', 'dsc_status': 'LISTING_STATUS', 'dsc_shop_email': 'SELLER_EMAIL',
+    'product_warranty': 'PRODUCT_WARRANTY', 'warranty_duration': 'WARRANTY_DURATION', 'warranty_address': 'WARRANTY_ADDRESS',
+    'warranty_type': 'WARRANTY_TYPE', 'count_variations': 'COUNT_VARIATIONS', 'count variations': 'COUNT_VARIATIONS',
+    'number of variations': 'COUNT_VARIATIONS', 'list_variations': 'LIST_VARIATIONS', 'list variations': 'LIST_VARIATIONS'
 }
-
-if 'layout_mode' not in st.session_state: st.session_state.layout_mode = "wide"
-if 'ui_lang' not in st.session_state: st.session_state.ui_lang = "en"
-if 'final_report' not in st.session_state: st.session_state.final_report = pd.DataFrame()
-if 'all_data_map' not in st.session_state: st.session_state.all_data_map = pd.DataFrame()
-if 'post_qc_summary' not in st.session_state: st.session_state.post_qc_summary = pd.DataFrame()
-if 'post_qc_results' not in st.session_state: st.session_state.post_qc_results = {}
-if 'post_qc_data' not in st.session_state: st.session_state.post_qc_data = pd.DataFrame()
-if 'file_mode' not in st.session_state: st.session_state.file_mode = None
-if 'intersection_sids' not in st.session_state: st.session_state.intersection_sids = set()
-if 'intersection_count' not in st.session_state: st.session_state.intersection_count = 0
-if 'grid_page' not in st.session_state: st.session_state.grid_page = 0
-if 'grid_items_per_page' not in st.session_state: st.session_state.grid_items_per_page = 50
-if 'main_toasts' not in st.session_state: st.session_state.main_toasts = []
-if 'exports_cache' not in st.session_state: st.session_state.exports_cache = {}
-if 'do_scroll_top' not in st.session_state: st.session_state.do_scroll_top = False
-if 'display_df_cache' not in st.session_state: st.session_state.display_df_cache = {}
-if 'main_bridge_counter' not in st.session_state: st.session_state.main_bridge_counter = 0
-if 'search_active' not in st.session_state: st.session_state.search_active = False
-if 'pre_search_page' not in st.session_state: st.session_state.pre_search_page = 0
-if 'desel_counter' not in st.session_state: st.session_state.desel_counter = 0
-if 'quick_rejections' not in st.session_state: st.session_state.quick_rejections = {}
-if 'batch_counter' not in st.session_state: st.session_state.batch_counter = 0
-if 'clear_counter' not in st.session_state: st.session_state.clear_counter = 0
-if 'ls_processed_flag' not in st.session_state: st.session_state.ls_processed_flag = False
-if 'ls_read_trigger' not in st.session_state: st.session_state.ls_read_trigger = 0
-if 'flags_expanded_initialized' not in st.session_state: st.session_state.flags_expanded_initialized = False
-
-_pre_country = st.session_state.get("country_selector") or st.session_state.get("selected_country", "Kenya")
-if _pre_country == "Morocco":
-    st.session_state.ui_lang = "fr"
-elif st.session_state.get("ui_lang") == "fr":
-    st.session_state.ui_lang = "en"
-
-def _t(key):
-    return get_translation(st.session_state.ui_lang, key)
-
-try: st.set_page_config(page_title="Product Tool", layout=st.session_state.layout_mode)
-except: pass
-
-st_yled.init()
-
-rtl_css = """
-        div[data-testid="stTextArea"] textarea, div[data-testid="stTextInput"] input {
-            direction: rtl !important;
-            text-align: right !important;
-        }
-""" if st.session_state.ui_lang == "ar" else ""
-
-st.markdown(f"""
-    <style>
-        {rtl_css}
-
-        div[data-testid="stTextInput"]:has(input[placeholder="JTBRIDGE_UNIQUE_DO_NOT_USE"]) {{
-            position: absolute !important;
-            width: 1px !important;
-            height: 1px !important;
-            padding: 0 !important;
-            margin: -1px !important;
-            overflow: hidden !important;
-            clip: rect(0, 0, 0, 0) !important;
-            white-space: nowrap !important;
-            border: 0 !important;
-            opacity: 0 !important;
-            z-index: -9999 !important;
-        }}
-
-        @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined');
-
-        :root {{
-            --jumia-orange: {JUMIA_COLORS['primary_orange']};
-            --jumia-red: {JUMIA_COLORS['jumia_red']};
-            --jumia-dark: {JUMIA_COLORS['dark_gray']};
-        }}
-        header[data-testid="stHeader"] {{ background: transparent !important; }}
-        div[data-testid="stStatusWidget"] {{ z-index: 9999999 !important; }}
-        .stButton > button {{ border-radius: 4px; font-weight: 600; transition: all 0.3s ease; }}
-        .stButton > button[kind="primary"] {{ background-color: {JUMIA_COLORS['primary_orange']} !important; border: none !important; color: white !important; }}
-        .stButton > button[kind="primary"]:hover {{ background-color: {JUMIA_COLORS['secondary_orange']} !important; box-shadow: 0 4px 8px rgba(246, 139, 30, 0.3); transform: translateY(-1px); }}
-        .stButton > button[kind="secondary"] {{ background-color: white !important; border: 2px solid {JUMIA_COLORS['primary_orange']} !important; color: {JUMIA_COLORS['primary_orange']} !important; }}
-        .stButton > button[kind="secondary"]:hover {{ background-color: {JUMIA_COLORS['light_gray']} !important; }}
-
-        div[data-testid="stMetric"] {{
-            background: {JUMIA_COLORS['light_gray']};
-            border-radius: 0 0 8px 8px;
-            padding: 12px 16px 16px 16px;
-            text-align: center;
-        }}
-        div[data-testid="stMetricValue"] {{ color: {JUMIA_COLORS['dark_gray']}; font-weight: 700; font-size: 26px !important; }}
-        div[data-testid="stMetricLabel"] {{ color: {JUMIA_COLORS['medium_gray']}; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }}
-
-        ::-webkit-scrollbar {{ width: 18px !important; height: 18px !important; }}
-        ::-webkit-scrollbar-track {{ background: {JUMIA_COLORS['light_gray']}; border-radius: 8px; }}
-        ::-webkit-scrollbar-thumb {{ background: {JUMIA_COLORS['medium_gray']}; border-radius: 8px; border: 3px solid {JUMIA_COLORS['light_gray']}; }}
-        ::-webkit-scrollbar-thumb:hover {{ background: {JUMIA_COLORS['primary_orange']}; }}
-        * {{ scrollbar-width: auto; scrollbar-color: {JUMIA_COLORS['medium_gray']} {JUMIA_COLORS['light_gray']}; }}
-
-        div[data-baseweb="slider"] div[role="slider"] {{ height: 24px !important; width: 24px !important; border: 4px solid {JUMIA_COLORS['primary_orange']} !important; cursor: pointer !important; }}
-        div[data-baseweb="slider"] > div > div {{ height: 12px !important; }}
-
-        @media (prefers-color-scheme: dark) {{
-            div[data-testid="stMetricValue"] {{ color: #F5F5F5 !important; }}
-            div[data-testid="stMetricLabel"] {{ color: #B0B0B0 !important; }}
-            div[data-testid="stMetric"] {{ background: #2a2a2e !important; }}
-            h1, h2, h3 {{ color: #F5F5F5 !important; }}
-            div[data-testid="stExpander"] summary {{ background-color: #2a2a2e !important; color: #F5F5F5 !important; }}
-            div[data-testid="stExpander"] summary p, div[data-testid="stExpander"] summary span, div[data-testid="stExpander"] summary div {{ color: #F5F5F5 !important; }}
-            div[data-testid="stDataFrame"] * {{ color: #F5F5F5 !important; }}
-            .stDataFrame th {{ background-color: #2a2a2e !important; color: #F5F5F5 !important; }}
-            .color-badge {{ background: #3a3a3e !important; border-color: #555 !important; color: #E0E0E0 !important; }}
-            div[style*="position: sticky"], div[style*="position:sticky"] {{ background-color: #0e1117 !important; border-bottom-color: #2a2a2e !important; }}
-            .stCaption, div[data-testid="stCaptionContainer"] p {{ color: #B0B0B0 !important; }}
-            .prod-meta-text {{ color: #B0B0B0 !important; }}
-            .prod-brand-text {{ color: {JUMIA_COLORS['secondary_orange']} !important; }}
-            ::-webkit-scrollbar-track {{ background: #1e1e1e; border-color: #1e1e1e; }}
-            ::-webkit-scrollbar-thumb {{ background: #555; border-color: #1e1e1e; }}
-            ::-webkit-scrollbar-thumb:hover {{ background: {JUMIA_COLORS['primary_orange']}; }}
-        }}
-
-        div[data-testid="stExpander"] {{ border: 1px solid {JUMIA_COLORS['border_gray']}; border-radius: 8px; }}
-        div[data-testid="stExpander"] summary {{ background-color: {JUMIA_COLORS['light_gray']}; padding: 12px; border-radius: 8px 8px 0 0; }}
-        h1, h2, h3 {{ color: {JUMIA_COLORS['dark_gray']} !important; }}
-        div[data-baseweb="segmented-control"] button {{ border-radius: 4px; }}
-        div[data-baseweb="segmented-control"] button[aria-pressed="true"] {{ background-color: {JUMIA_COLORS['primary_orange']} !important; color: white !important; }}
-        input[type="checkbox"]:checked {{ background-color: {JUMIA_COLORS['primary_orange']} !important; border-color: {JUMIA_COLORS['primary_orange']} !important; }}
-        div[data-testid="stCheckbox"] {{ margin-top: 5px; margin-bottom: 5px; }}
-    </style>
-""", unsafe_allow_html=True)
-
-def get_default_country():
-    try:
-        lang = st.context.headers.get("Accept-Language", "")
-        if "KE" in lang: return "Kenya"
-        if "UG" in lang: return "Uganda"
-        if "NG" in lang: return "Nigeria"
-        if "GH" in lang: return "Ghana"
-        if "MA" in lang: return "Morocco"
-    except: pass
-    return "Kenya"
-
-if 'selected_country' not in st.session_state: st.session_state.selected_country = get_default_country()
-
-if st.session_state.main_toasts:
-    for msg in st.session_state.main_toasts:
-        if isinstance(msg, tuple): st.toast(msg[0], icon=msg[1])
-        else: st.toast(msg)
-    st.session_state.main_toasts.clear()
 
 def clean_category_code(code) -> str:
     try:
@@ -430,71 +254,15 @@ def create_match_key(row: pd.Series) -> str:
 def df_hash(df: pd.DataFrame) -> str:
     try:
         return hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdigest()
-    except Exception as e:
-        logger.warning(f"df_hash primary failed, using fallback: {e}")
+    except Exception:
         fallback_str = str(df.shape) + str(df.columns.tolist())
         return hashlib.md5(fallback_str.encode()).hexdigest()
-
-COLOR_PATTERNS = {
-    'red': ['red', 'crimson', 'scarlet', 'maroon', 'burgundy', 'wine', 'ruby'],
-    'blue': ['blue', 'navy', 'royal', 'sky', 'azure', 'cobalt', 'sapphire'],
-    'green': ['green', 'lime', 'olive', 'emerald', 'mint', 'forest', 'jade'],
-    'black': ['black', 'onyx', 'ebony', 'jet', 'charcoal', 'midnight'],
-    'white': ['white', 'ivory', 'cream', 'pearl', 'snow', 'alabaster'],
-    'gray': ['gray', 'grey', 'silver', 'slate', 'ash', 'graphite'],
-    'yellow': ['yellow', 'gold', 'golden', 'amber', 'lemon', 'mustard'],
-    'orange': ['orange', 'tangerine', 'peach', 'coral', 'apricot'],
-    'pink': ['pink', 'rose', 'magenta', 'fuchsia', 'salmon', 'blush'],
-    'purple': ['purple', 'violet', 'lavender', 'plum', 'mauve', 'lilac'],
-    'brown': ['brown', 'tan', 'beige', 'khaki', 'chocolate', 'coffee', 'bronze'],
-    'multicolor': ['multicolor', 'multicolour', 'multi-color', 'rainbow', 'mixed']
-}
-
-COLOR_VARIANT_TO_BASE = {}
-for base_color, variants in COLOR_PATTERNS.items():
-    for variant in variants: COLOR_VARIANT_TO_BASE[variant] = base_color
-
-@dataclass
-class ProductAttributes:
-    base_name: str; colors: Set[str]; sizes: Set[str]; storage: Set[str]; memory: Set[str]; quantities: Set[str]; raw_name: str
-
-def extract_colors(text: str, explicit_color: Optional[str] = None) -> Set[str]:
-    colors = set()
-    text_lower = str(text).lower() if text else ""
-    if explicit_color and pd.notna(explicit_color):
-        color_lower = str(explicit_color).lower().strip()
-        for variant, base in COLOR_VARIANT_TO_BASE.items():
-            if variant in color_lower: colors.add(base)
-    for variant, base in COLOR_VARIANT_TO_BASE.items():
-        if re.search(r'\b' + re.escape(variant) + r'\b', text_lower): colors.add(base)
-    return colors
-
-def remove_attributes(text: str) -> str:
-    base = str(text).lower() if text else ""
-    for variant in COLOR_VARIANT_TO_BASE.keys(): base = re.sub(r'\b' + re.escape(variant) + r'\b', '', base)
-    base = re.sub(r'\b(?:xxs|xs|small|medium|large|xl|xxl|xxxl)\b', '', base)
-    base = re.sub(r'\b\d+\s*(?:gb|tb|inch|inches|"|ram|memory|ddr|pack|piece|pcs)\b', '', base)
-    for word in ['new', 'original', 'genuine', 'authentic', 'official', 'premium', 'quality', 'best', 'hot', 'sale', 'promo', 'deal']:
-        base = re.sub(r'\b' + word + r'\b', '', base)
-    return re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', ' ', base)).strip()
-
-def extract_product_attributes(name: str, explicit_color: Optional[str] = None, brand: Optional[str] = None) -> ProductAttributes:
-    name_str = str(name).strip() if pd.notna(name) else ""
-    attrs = ProductAttributes(base_name="", colors=extract_colors(name_str, explicit_color), sizes=set(), storage=set(), memory=set(), quantities=set(), raw_name=name_str)
-    base_name = remove_attributes(name_str)
-    if brand and pd.notna(brand):
-        brand_lower = str(brand).lower().strip()
-        if brand_lower not in base_name and brand_lower not in ['generic', 'fashion']: base_name = f"{brand_lower} {base_name}"
-    attrs.base_name = base_name.strip()
-    return attrs
 
 def load_txt_file(filename: str) -> List[str]:
     try:
         if not os.path.exists(os.path.abspath(filename)): return []
         with open(filename, 'r', encoding='utf-8') as f: return [line.strip() for line in f if line.strip()]
-    except Exception as e:
-        logger.warning(f"load_txt_file({filename}): {e}")
-        return []
+    except Exception: return []
 
 @st.cache_data(ttl=3600)
 def load_excel_file(filename: str, column: Optional[str] = None):
@@ -504,18 +272,14 @@ def load_excel_file(filename: str, column: Optional[str] = None):
         df.columns = df.columns.str.strip()
         if column and column in df.columns: return df[column].apply(clean_category_code).tolist()
         return df
-    except Exception as e:
-        logger.warning(f"load_excel_file({filename}, col={column}): {e}")
-        return [] if column else pd.DataFrame()
+    except Exception: return [] if column else pd.DataFrame()
 
 def safe_excel_read(filename: str, sheet_name, usecols=None) -> pd.DataFrame:
     if not os.path.exists(filename): return pd.DataFrame()
     try:
         df = pd.read_excel(filename, sheet_name=sheet_name, usecols=usecols, engine='openpyxl', dtype=str)
         return df.dropna(how='all')
-    except Exception as e:
-        logger.error(f"safe_excel_read: tab='{sheet_name}' file={filename}: {e}")
-        return pd.DataFrame()
+    except Exception: return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
 def load_prohibited_from_local() -> Dict[str, List[Dict]]:
@@ -543,9 +307,7 @@ def load_prohibited_from_local() -> Dict[str, List[Dict]]:
                         categories.update([clean_category_code(c.strip()) for c in split_cats if c.strip()])
                 country_rules.append({'keyword': keyword, 'categories': categories})
             prohibited_by_country[tab] = country_rules
-        except Exception as e:
-            logger.warning(f"load_prohibited_from_local tab={tab}: {e}")
-            prohibited_by_country[tab] = []
+        except Exception: prohibited_by_country[tab] = []
     return prohibited_by_country
 
 @st.cache_data(ttl=3600)
@@ -583,9 +345,7 @@ def load_restricted_brands_from_local() -> Dict[str, List[Dict]]:
                 if data['has_blank_category']: data['categories'] = set()
                 country_rules.append({'brand': b_lower, 'brand_raw': data['brand_raw'], 'sellers': data['sellers'], 'categories': data['categories'], 'variations': list(data['variations'])})
             config_by_country[country_name] = country_rules
-        except Exception as e:
-            logger.warning(f"load_restricted_brands tab={tab_name}: {e}")
-            config_by_country[country_name] = []
+        except Exception: config_by_country[country_name] = []
     return config_by_country
 
 @st.cache_data(ttl=3600)
@@ -601,9 +361,7 @@ def load_refurb_data_from_local() -> dict:
                 phones_set  = set(df.iloc[:, 0].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "phones", "phone"}
                 laptops_set = set(df.iloc[:, 1].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "laptops", "laptop"}
                 result["sellers"][tab] = {"Phones": phones_set, "Laptops": laptops_set}
-        except Exception as e:
-            logger.warning(f"load_refurb_data tab={tab}: {e}")
-            result["sellers"][tab] = {"Phones": set(), "Laptops": set()}
+        except Exception: result["sellers"][tab] = {"Phones": set(), "Laptops": set()}
     try:
         df_cats = safe_excel_read(FILE_NAME, sheet_name="Categories", usecols=[0, 1])
         if df_cats.empty: df_cats = safe_excel_read(FILE_NAME, sheet_name="Categries", usecols=[0, 1])
@@ -611,16 +369,13 @@ def load_refurb_data_from_local() -> dict:
             df_cats.columns = [str(c).strip() for c in df_cats.columns]
             result["categories"]["Phones"] = {clean_category_code(c) for c in df_cats.iloc[:, 0].dropna().astype(str) if c.strip() and c.strip().lower() not in ("phones", "phone", "nan")}
             result["categories"]["Laptops"] = {clean_category_code(c) for c in df_cats.iloc[:, 1].dropna().astype(str) if c.strip() and c.strip().lower() not in ("laptops", "laptop", "nan")}
-    except Exception as e:
-        logger.warning(f"load_refurb_data categories: {e}")
+    except Exception: pass
     try:
         df_names = safe_excel_read(FILE_NAME, sheet_name="Name", usecols=[0])
         if not df_names.empty:
             first_col = df_names.columns[0]
             result["keywords"] = {k for k in df_names[first_col].dropna().astype(str).str.strip().str.lower() if k and k not in ("name", "keyword", "keywords", "words", "nan")}
-    except Exception as e:
-        logger.warning(f"load_refurb_data keywords: {e}")
-        result["keywords"] = {"refurb", "refurbished", "renewed"}
+    except Exception: result["keywords"] = {"refurb", "refurbished", "renewed"}
     return result
 
 @st.cache_data(ttl=3600)
@@ -636,25 +391,21 @@ def load_perfume_data_from_local() -> Dict:
                 seller_col = next((c for c in df.columns if 'seller' in c.lower()), df.columns[0])
                 sellers = set(df[seller_col].dropna().astype(str).str.strip().str.lower().pipe(lambda s: s[~s.isin(["", "nan", "sellername", "seller name", "seller"])]))
                 result["sellers"][tab] = sellers
-        except Exception as e:
-            logger.warning(f"load_perfume_data tab={tab}: {e}")
-            result["sellers"][tab] = set()
+        except Exception: result["sellers"][tab] = set()
     try:
         df_kw = safe_excel_read(FILE_NAME, sheet_name="Keywords")
         if not df_kw.empty:
             df_kw.columns = [str(c).strip() for c in df_kw.columns]
             kw_col = next((c for c in df_kw.columns if 'brand' in c.lower() or 'keyword' in c.lower()), df_kw.columns[0])
             result["keywords"] = set(df_kw[kw_col].dropna().astype(str).str.strip().str.lower().pipe(lambda s: s[~s.isin(["", "nan", "brand", "keyword", "keywords"])]))
-    except Exception as e:
-        logger.warning(f"load_perfume_data keywords: {e}")
+    except Exception: pass
     try:
         df_cats = safe_excel_read(FILE_NAME, sheet_name="Categories")
         if not df_cats.empty:
             df_cats.columns = [str(c).strip() for c in df_cats.columns]
             cat_col = next((c for c in df_cats.columns if 'cat' in c.lower()), df_cats.columns[0])
             result["category_codes"] = set(df_cats[cat_col].dropna().astype(str).apply(clean_category_code).pipe(lambda s: s[~s.isin(["", "nan", "categories", "category"])]))
-    except Exception as e:
-        logger.warning(f"load_perfume_data categories: {e}")
+    except Exception: pass
     return result
 
 @st.cache_data(ttl=3600)
@@ -669,17 +420,14 @@ def load_books_data_from_local() -> Dict:
                 df.columns = [str(c).strip() for c in df.columns]
                 seller_col = next((c for c in df.columns if 'seller' in c.lower()), df.columns[0])
                 result["sellers"][tab] = set(df[seller_col].dropna().astype(str).str.strip().str.lower().pipe(lambda s: s[~s.isin(["", "nan", "sellername", "seller name", "seller"])]))
-        except Exception as e:
-            logger.warning(f"load_books_data tab={tab}: {e}")
-            result["sellers"][tab] = set()
+        except Exception: result["sellers"][tab] = set()
     try:
         df_cats = safe_excel_read(FILE_NAME, sheet_name="Categories")
         if not df_cats.empty:
             df_cats.columns = [str(c).strip() for c in df_cats.columns]
             cat_col = next((c for c in df_cats.columns if 'cat' in c.lower()), df_cats.columns[0])
             result["category_codes"] = set(df_cats[cat_col].dropna().astype(str).apply(clean_category_code).pipe(lambda s: s[~s.isin(["", "nan", "categories", "category"])]))
-    except Exception as e:
-        logger.warning(f"load_books_data categories: {e}")
+    except Exception: pass
     return result
 
 @st.cache_data(ttl=3600)
@@ -695,33 +443,25 @@ def load_jerseys_from_local() -> Dict:
                 kw_col = next((c for c in df.columns if "keyword" in c.lower()), df.columns[0])
                 result["keywords"][tab] = set(df[kw_col].dropna().astype(str).str.strip().str.lower().pipe(lambda s: s[~s.isin(["", "nan", "keywords", "keyword"])]))
                 ex_col = next((c for c in df.columns if "exempt" in c.lower() or "seller" in c.lower()), None)
-                if ex_col:
-                    result["exempted"][tab] = set(df[ex_col].dropna().astype(str).str.strip().str.lower().pipe(lambda s: s[~s.isin(["", "nan", "exempted sellers", "seller"])]))
-        except Exception as e:
-            logger.warning(f"load_jerseys tab={tab}: {e}")
+                if ex_col: result["exempted"][tab] = set(df[ex_col].dropna().astype(str).str.strip().str.lower().pipe(lambda s: s[~s.isin(["", "nan", "exempted sellers", "seller"])]))
+        except Exception: pass
     try:
         df_cats = safe_excel_read(FILE_NAME, sheet_name="categories")
         if not df_cats.empty:
             df_cats.columns = [str(c).strip().lower() for c in df_cats.columns]
             cat_col = next((c for c in df_cats.columns if "cat" in c), df_cats.columns[0])
             result["categories"] = set(df_cats[cat_col].dropna().astype(str).apply(clean_category_code).pipe(lambda s: s[~s.isin(["", "nan", "categories", "category"])]))
-    except Exception as e:
-        logger.warning(f"load_jerseys categories: {e}")
+    except Exception: pass
     return result
 
 @st.cache_data(ttl=3600)
 def load_suspected_fake_from_local() -> Dict:
     country_codes = ["KE", "UG", "NG", "MA", "GH"]
-    if not os.path.exists('suspected_fake.xlsx'):
-        logger.warning("suspected_fake.xlsx not found")
-        return {code: pd.DataFrame() for code in country_codes}
+    if not os.path.exists('suspected_fake.xlsx'): return {code: pd.DataFrame() for code in country_codes}
     result = {}
     for code in country_codes:
-        try:
-            result[code] = pd.read_excel('suspected_fake.xlsx', sheet_name=code, engine='openpyxl', dtype=str)
-        except Exception as e:
-            logger.warning(f"load_suspected_fake country={code}: {e}")
-            result[code] = pd.DataFrame()
+        try: result[code] = pd.read_excel('suspected_fake.xlsx', sheet_name=code, engine='openpyxl', dtype=str)
+        except Exception: result[code] = pd.DataFrame()
     return result
 
 @st.cache_data(ttl=3600)
@@ -737,107 +477,74 @@ def load_nigeria_qc_rules() -> Dict:
         "rice":       {},
         "powerbanks": {"brands": set(), "category_codes": set()},
     }
-
-    if not os.path.exists(FILE_NAME):
-        logger.warning("Nigeria_QC_Rules.xlsx not found — NG-specific checks will be skipped.")
-        return result
-
+    if not os.path.exists(FILE_NAME): return result
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="Gift card")
         if not df.empty:
             df.columns = [str(c).strip() for c in df.columns]
-            seller_col, cat_col = df.columns[0], df.columns[1]
-            result["gift_card"]["sellers"] = (set(df[seller_col].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
-            result["gift_card"]["category_codes"] = (set(df[cat_col].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
-    except Exception as e: logger.warning(f"load_nigeria_qc_rules gift_card: {e}")
-
+            result["gift_card"]["sellers"] = (set(df[df.columns[0]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
+            result["gift_card"]["category_codes"] = (set(df[df.columns[1]].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
+    except Exception: pass
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="Books")
         if not df.empty:
             df.columns = [str(c).strip() for c in df.columns]
-            name_col, seller_col = df.columns[0], df.columns[1]
             for _, row in df.iterrows():
-                book = str(row[name_col]).strip().lower()
+                book = str(row[df.columns[0]]).strip().lower()
                 if not book or book == "nan": continue
-                raw_seller = str(row.get(seller_col, "")).strip().lower()
+                raw_seller = str(row.get(df.columns[1], "")).strip().lower()
                 result["books"][book] = None if (not raw_seller or raw_seller == "nan") else raw_seller
-    except Exception as e: logger.warning(f"load_nigeria_qc_rules books: {e}")
-
+    except Exception: pass
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="TVs")
         if not df.empty:
             df.columns = [str(c).strip() for c in df.columns]
-            cat_col    = df.columns[0]
-            brand_cols = df.columns[1:]
-            result["tvs"]["category_codes"] = (set(df[cat_col].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
-            for bc in brand_cols:
-                brand_lower = bc.strip().lower()
-                result["tvs"]["brand_sellers"][brand_lower] = (set(df[bc].dropna().astype(str).str.strip().str.lower()) - {"", "nan", brand_lower})
-    except Exception as e: logger.warning(f"load_nigeria_qc_rules tvs: {e}")
-
+            result["tvs"]["category_codes"] = (set(df[df.columns[0]].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
+            for bc in df.columns[1:]:
+                bl = bc.strip().lower()
+                result["tvs"]["brand_sellers"][bl] = (set(df[bc].dropna().astype(str).str.strip().str.lower()) - {"", "nan", bl})
+    except Exception: pass
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="HP ink toners")
         if not df.empty:
             df.columns = [str(c).strip() for c in df.columns]
-            seller_col = df.columns[0]
-            cat_col    = df.columns[1] if len(df.columns) > 1 else None
-            result["hp_toners"]["sellers"] = (set(df[seller_col].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
-            if cat_col:
-                result["hp_toners"]["category_codes"] = (set(df[cat_col].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
-    except Exception as e: logger.warning(f"load_nigeria_qc_rules hp_toners: {e}")
-
+            result["hp_toners"]["sellers"] = (set(df[df.columns[0]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
+            if len(df.columns) > 1: result["hp_toners"]["category_codes"] = (set(df[df.columns[1]].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
+    except Exception: pass
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="Apple")
         if not df.empty:
             df.columns = [str(c).strip() for c in df.columns]
-            seller_col = df.columns[0]
-            result["apple"]["sellers"] = (set(df[seller_col].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
-    except Exception as e: logger.warning(f"load_nigeria_qc_rules apple: {e}")
-
+            result["apple"]["sellers"] = (set(df[df.columns[0]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
+    except Exception: pass
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="Xmas Tree")
         if not df.empty:
             df.columns = [str(c).strip() for c in df.columns]
-            seller_col = df.columns[0]
-            kw_col     = df.columns[1] if len(df.columns) > 1 else None
-            result["xmas_tree"]["sellers"] = (set(df[seller_col].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
-            if kw_col:
-                result["xmas_tree"]["keywords"] = (set(df[kw_col].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "keyword", "keywords"})
-    except Exception as e: logger.warning(f"load_nigeria_qc_rules xmas_tree: {e}")
-
+            result["xmas_tree"]["sellers"] = (set(df[df.columns[0]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "seller"})
+            if len(df.columns) > 1: result["xmas_tree"]["keywords"] = (set(df[df.columns[1]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "keyword", "keywords"})
+    except Exception: pass
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="Rice")
         if not df.empty:
             df.columns = [str(c).strip() for c in df.columns]
-            brand_col   = df.columns[0]
-            sellers_col = df.columns[1]
-            cat_col     = df.columns[2] if len(df.columns) > 2 else None
             for _, row in df.iterrows():
-                brand = str(row[brand_col]).strip().lower()
+                brand = str(row[df.columns[0]]).strip().lower()
                 if not brand or brand == "nan": continue
-                raw_sellers = str(row.get(sellers_col, "")).strip()
-                sellers = set()
-                if raw_sellers and raw_sellers.lower() != "nan": sellers = {s.strip().lower() for s in raw_sellers.split(",") if s.strip()}
-                cat_code = ""
-                if cat_col:
-                    raw_cat = str(row.get(cat_col, "")).strip()
-                    if raw_cat and raw_cat.lower() != "nan": cat_code = clean_category_code(raw_cat)
+                raw_sellers = str(row.get(df.columns[1], "")).strip()
+                sellers = {s.strip().lower() for s in raw_sellers.split(",") if s.strip()} if (raw_sellers and raw_sellers.lower() != "nan") else set()
+                cat_code = clean_category_code(str(row.get(df.columns[2], "")).strip()) if len(df.columns) > 2 else ""
                 if brand not in result["rice"]: result["rice"][brand] = {"sellers": set(), "category_codes": set()}
                 result["rice"][brand]["sellers"].update(sellers)
                 if cat_code: result["rice"][brand]["category_codes"].add(cat_code)
-    except Exception as e: logger.warning(f"load_nigeria_qc_rules rice: {e}")
-
+    except Exception: pass
     try:
         df = safe_excel_read(FILE_NAME, sheet_name="20,000mah Powerbanks")
         if not df.empty:
             df.columns = [str(c).strip() for c in df.columns]
-            brand_col = df.columns[0]
-            cat_col   = df.columns[1] if len(df.columns) > 1 else None
-            result["powerbanks"]["brands"] = (set(df[brand_col].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "brand"})
-            if cat_col:
-                result["powerbanks"]["category_codes"] = (set(df[cat_col].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
-    except Exception as e: logger.warning(f"load_nigeria_qc_rules powerbanks: {e}")
-
+            result["powerbanks"]["brands"] = (set(df[df.columns[0]].dropna().astype(str).str.strip().str.lower()) - {"", "nan", "brand"})
+            if len(df.columns) > 1: result["powerbanks"]["category_codes"] = (set(df[df.columns[1]].dropna().astype(str).apply(clean_category_code)) - {"", "nan"})
+    except Exception: pass
     return result
 
 @st.cache_data(ttl=3600)
@@ -946,25 +653,12 @@ def load_all_support_files() -> Dict:
         if os.path.exists(_cm_path):
             _cm_df = pd.read_excel(_cm_path, engine="openpyxl", dtype=str)
             _cm_df.columns = [c.strip() for c in _cm_df.columns]
-
-            _path_col = next(
-                (c for c in _cm_df.columns if c.lower() == "category path"),
-                next((c for c in _cm_df.columns if "path" in c.lower()), None)
-            )
-            _code_col = next(
-                (c for c in _cm_df.columns if "code" in c.lower()), None
-            )
-
-            logger.info(
-                f"[CategoryMap] Loaded {_cm_path}: {len(_cm_df)} rows, "
-                f"path_col={_path_col!r}, code_col={_code_col!r}"
-            )
-
+            _path_col = next((c for c in _cm_df.columns if c.lower() == "category path"), next((c for c in _cm_df.columns if "path" in c.lower()), None))
+            _code_col = next((c for c in _cm_df.columns if "code" in c.lower()), None)
             if _path_col:
                 _valid = _cm_df[_path_col].dropna().astype(str)
                 _valid = _valid[_valid.str.strip().ne("")]
                 _cat_names = _valid.tolist()
-
                 if _code_col:
                     for _, _row in _cm_df[[_path_col, _code_col]].dropna().iterrows():
                         _p = str(_row[_path_col]).strip()
@@ -972,33 +666,11 @@ def load_all_support_files() -> Dict:
                         if _p and _c:
                             _cat_path_to_code[_p.lower()] = _c  
                             _code_to_path[_c] = _p               
-
-                logger.info(
-                    f"[CategoryMap] Built: {len(_cat_names)} category paths, "
-                    f"{len(_code_to_path)} code->path entries"
-                )
-            else:
-                logger.warning(
-                    f"[CategoryMap] No 'Category Path' column found in {_cm_path}. "
-                    f"Columns: {list(_cm_df.columns)}"
-                )
-        else:
-            logger.warning(
-                f"[CategoryMap] {_cm_path} not found — wrong-category detection "
-                f"will be skipped. Place category_map.xlsx in the app root directory."
-            )
-    except Exception as _ce:
-        logger.error(f"[CategoryMap] Failed to load {_cm_path}: {_ce}")
+    except Exception as _ce: pass
 
     support['categories_names_list'] = _cat_names
     support['cat_path_to_code'] = _cat_path_to_code
     support['code_to_path'] = _code_to_path
-
-    logger.info(
-        f"[CategoryMap] Final: categories_names_list={len(_cat_names)}, "
-        f"cat_path_to_code={len(_cat_path_to_code)}, code_to_path={len(_code_to_path)}"
-    )
-
     support['compiled_json_rules'] = load_and_compile_json_rules("category_qc_weighted.json")
     return support
 
@@ -1007,55 +679,32 @@ def load_support_files_lazy(): return load_all_support_files()
 
 @st.cache_resource(ttl=3600)
 def load_and_compile_json_rules(json_path="category_qc_weighted.json") -> dict:
-    if not os.path.exists(json_path):
-        logger.warning(f"{json_path} not found. Running without JSON boosts.")
-        return {}
-        
+    if not os.path.exists(json_path): return {}
     try:
-        with open(json_path, 'r', encoding='utf-8') as f:
-            raw_rules = json.load(f)
-    except Exception as e:
-        logger.warning(f"Could not load JSON rules: {e}")
-        return {}
-
+        with open(json_path, 'r', encoding='utf-8') as f: raw_rules = json.load(f)
+    except Exception: return {}
     if isinstance(raw_rules, list):
         fixed_rules = {}
         for item in raw_rules:
             if isinstance(item, dict):
-                cat = (item.get("category") or item.get("Category Path")
-                       or item.get("name") or item.get("category_name"))
-                kws = (item.get("keywords") or item.get("weights")
-                       or item.get("positive"))
-                if cat and isinstance(kws, dict):
-                    fixed_rules[cat] = kws
+                cat = (item.get("category") or item.get("Category Path") or item.get("name") or item.get("category_name"))
+                kws = (item.get("keywords") or item.get("weights") or item.get("positive"))
+                if cat and isinstance(kws, dict): fixed_rules[cat] = kws
         raw_rules = fixed_rules
-
-    if not isinstance(raw_rules, dict):
-        logger.warning("JSON rules file has an unrecognizable format. Must be a dict.")
-        return {}
-
+    if not isinstance(raw_rules, dict): return {}
     compiled_rules = {}
     for cat_path, keywords_dict in raw_rules.items():
-        if not isinstance(keywords_dict, dict) or not keywords_dict:
-            continue
-            
+        if not isinstance(keywords_dict, dict) or not keywords_dict: continue
         try:
             safe_kws = {str(k): float(w) for k, w in keywords_dict.items()}
             sorted_kws = sorted(safe_kws.keys(), key=len, reverse=True)
-            if not sorted_kws:
-                continue
-                
+            if not sorted_kws: continue
             pattern_str = r'\b(' + '|'.join(re.escape(k) for k in sorted_kws) + r')\b'
-            
-            # CRITICAL FIX: Convert the key to lowercase so the engine can find it
             compiled_rules[str(cat_path).strip().lower()] = {
                 'pattern': re.compile(pattern_str, re.IGNORECASE),
                 'weights': {k.lower(): w for k, w in safe_kws.items()}
             }
-        except Exception as e:
-            logger.warning(f"Skipping bad JSON rule block for {cat_path}: {e}")
-            continue
-            
+        except Exception: continue
     return compiled_rules
 
 @st.cache_data(ttl=3600)
@@ -1072,13 +721,11 @@ class CountryValidator:
         "Ghana": {"code": "GH", "skip_validations": []},
         "Morocco": {"code": "MA", "skip_validations": []}
     }
-
     def __init__(self, country: str):
         self.country = country
         self.config = self.COUNTRY_CONFIG.get(country, self.COUNTRY_CONFIG["Kenya"])
         self.code = self.config["code"]
         self.skip_validations = self.config["skip_validations"]
-
     def should_skip_validation(self, validation_name: str) -> bool: return validation_name in self.skip_validations
     def ensure_status_column(self, df: pd.DataFrame) -> pd.DataFrame:
         if not df.empty and 'Status' not in df.columns: df['Status'] = 'Approved'
@@ -1087,40 +734,30 @@ class CountryValidator:
 def _detect_and_read_csv(buf) -> pd.DataFrame:
     _ENCODINGS = ['utf-8-sig', 'utf-8', 'cp1252', 'iso-8859-1']
     raw_bytes = buf.read()
-
     for enc in _ENCODINGS:
         for sep in [',', ';', '\t']:
             try:
                 from io import BytesIO as _BIO
                 df = pd.read_csv(_BIO(raw_bytes), sep=sep, encoding=enc, dtype=str)
-                if len(df.columns) > 1:
-                    return df
-            except Exception:
-                continue
-
+                if len(df.columns) > 1: return df
+            except Exception: continue
     from io import BytesIO as _BIO
     return pd.read_csv(_BIO(raw_bytes), sep=None, engine='python', encoding='utf-8', dtype=str)
-
 
 def _repair_mojibake(df: pd.DataFrame) -> pd.DataFrame:
     import re as _re
     _ILLEGAL_XML = _re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
-
     def _fix(val):
-        if not isinstance(val, str):
-            return val
+        if not isinstance(val, str): return val
         for enc in ('cp1252', 'latin-1'):
             try:
                 fixed = val.encode(enc).decode('utf-8')
                 if fixed != val and '\ufffd' not in fixed:
                     val = fixed
                     break
-            except (UnicodeDecodeError, UnicodeEncodeError):
-                continue
+            except (UnicodeDecodeError, UnicodeEncodeError): continue
         return _ILLEGAL_XML.sub('', val)
-
-    for col in df.select_dtypes(include='object').columns:
-        df[col] = df[col].apply(_fix)
+    for col in df.select_dtypes(include='object').columns: df[col] = df[col].apply(_fix)
     return df
 
 def standardize_input_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -1216,40 +853,29 @@ def compute_flag_input_hash(data: pd.DataFrame, flag_name: str, kwargs: dict) ->
     return hashlib.md5((df_hash_str + kwargs_repr).encode()).hexdigest()
 
 def run_cached_check(func, cache_path, ckwargs):
-    if func is check_miscellaneous_category:
-        return func(**ckwargs)
+    if func is check_miscellaneous_category: return func(**ckwargs)
     if os.path.exists(cache_path):
         try:
             with open(cache_path, 'rb') as f: return pickle.load(f)
-        except Exception as e:
-            logger.warning(f"run_cached_check load failed {cache_path}: {e}")
+        except Exception: pass
     res = func(**ckwargs)
     try:
         with open(cache_path, 'wb') as f: pickle.dump(res, f)
-    except Exception as e:
-        logger.warning(f"run_cached_check save failed {cache_path}: {e}")
+    except Exception: pass
     return res
 
-def check_miscellaneous_category(
-    data: pd.DataFrame,
-    categories_list: list = None,
-    compiled_rules: dict = None,
-    cat_path_to_code: dict = None,
-    code_to_path: dict = None,
-) -> pd.DataFrame:
+def check_miscellaneous_category(data: pd.DataFrame, categories_list: list = None, compiled_rules: dict = None, cat_path_to_code: dict = None, code_to_path: dict = None) -> pd.DataFrame:
     if categories_list is None: categories_list = []
     if compiled_rules is None: compiled_rules = st.session_state.get('compiled_json_rules', {})
     if cat_path_to_code is None: cat_path_to_code = {}
     if code_to_path is None: code_to_path = {}
-
     if not categories_list or not code_to_path:
         try:
             _sf = st.session_state.get("support_files", {})
             categories_list  = categories_list  or _sf.get("categories_names_list", [])
             cat_path_to_code = cat_path_to_code or _sf.get("cat_path_to_code", {})
             code_to_path     = code_to_path     or _sf.get("code_to_path", {})
-        except Exception:
-            pass
+        except Exception: pass
 
     if not _CAT_MATCHER_AVAILABLE:
         if 'CATEGORY' not in data.columns: return pd.DataFrame(columns=data.columns)
@@ -1260,24 +886,44 @@ def check_miscellaneous_category(
     try:
         _engine = _get_cat_matcher_engine()
         if _engine is None: return pd.DataFrame(columns=data.columns)
+        if categories_list and not _engine._tfidf_built: _engine.build_tfidf_index(categories_list)
+        _engine.set_compiled_rules(compiled_rules, code_to_path)
 
-        if categories_list and not _engine._tfidf_built:
-            _engine.build_tfidf_index(categories_list)
+        if hasattr(_engine, 'predict_batch') and callable(_engine.predict_batch):
+            names_series  = data['NAME'].astype(str).str.strip().fillna('')
+            unique_names  = names_series.unique().tolist()
+            batch_results = _engine.predict_batch(unique_names)
+            if isinstance(batch_results, dict): name_to_result = batch_results
+            else: name_to_result = dict(zip(unique_names, batch_results))
+            _data = data.copy()
+            _data['_pred_path'] = names_series.map(name_to_result).apply(lambda r: r[0] if isinstance(r, (list, tuple)) and r else (r or ''))
+            _data['_pred_conf'] = names_series.map(name_to_result).apply(lambda r: float(r[1]) if isinstance(r, (list, tuple)) and len(r) > 1 else 0.0)
+            _data['_actual_path'] = _data['CATEGORY_CODE'].apply(lambda c: code_to_path.get(str(c).strip(), '') if pd.notna(c) else '')
 
-        _engine.set_compiled_rules(compiled_rules)
+            def _top_domain(path: str) -> str:
+                if not path: return ''
+                return str(path).split('>')[0].split('/')[0].strip().lower()
 
-        # Call the engine's check_wrong_category (which now securely uses batch prediction)
-        return check_wrong_category(
-            data, categories_list,
-            compiled_rules=compiled_rules,
-            cat_path_to_code=cat_path_to_code,
-            code_to_path=code_to_path,
-        )
+            pred_domain   = _data['_pred_path'].apply(_top_domain)
+            actual_domain = _data['_actual_path'].apply(_top_domain)
+            conf_thr      = st.session_state.get('cat_conf_threshold', 0.0)
 
+            mismatch = (
+                pred_domain.ne('') & actual_domain.ne('') & pred_domain.ne(actual_domain) & (_data['_pred_conf'] >= conf_thr)
+            )
+            flagged = _data[mismatch].copy()
+            if not flagged.empty:
+                flagged['Comment_Detail'] = "Predicted: " + flagged['_pred_path'].str[:60] + " (conf: " + flagged['_pred_conf'].round(2).astype(str) + ")"
+                flagged['Suggested_Category'] = flagged['_pred_path']
+                flagged['Confidence']         = flagged['_pred_conf'].round(3)
+
+            flagged.drop(columns=[c for c in ['_pred_path', '_pred_conf', '_actual_path'] if c in flagged.columns], inplace=True, errors='ignore')
+            return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
+
+        return check_wrong_category(data, categories_list, compiled_rules=compiled_rules, cat_path_to_code=cat_path_to_code, code_to_path=code_to_path)
     except Exception as _e:
         logger.warning("check_miscellaneous_category engine error: %s", _e)
         return pd.DataFrame(columns=data.columns)
-
 
 def check_restricted_brands(data: pd.DataFrame, country_rules: List[Dict]) -> pd.DataFrame:
     if not {'NAME', 'BRAND', 'SELLER_NAME', 'CATEGORY_CODE'}.issubset(data.columns) or not country_rules: return pd.DataFrame(columns=data.columns)
@@ -1475,19 +1121,15 @@ def check_seller_approved_for_perfume(data: pd.DataFrame, perfume_category_codes
     return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
 
 def check_perfume_tester(data: pd.DataFrame, perfume_category_codes: List[str], perfume_data: Dict) -> pd.DataFrame:
-    if not {'CATEGORY_CODE', 'NAME'}.issubset(data.columns):
-        return pd.DataFrame(columns=data.columns)
+    if not {'CATEGORY_CODE', 'NAME'}.issubset(data.columns): return pd.DataFrame(columns=data.columns)
     sheet_cat_codes = perfume_data.get('category_codes')
     cat_codes = sheet_cat_codes if sheet_cat_codes else set(clean_category_code(c) for c in perfume_category_codes)
-    if not cat_codes:
-        return pd.DataFrame(columns=data.columns)
+    if not cat_codes: return pd.DataFrame(columns=data.columns)
     perfume = data[data['CATEGORY_CODE'].apply(clean_category_code).isin(cat_codes)].copy()
-    if perfume.empty:
-        return pd.DataFrame(columns=data.columns)
+    if perfume.empty: return pd.DataFrame(columns=data.columns)
     tester_pattern = re.compile(r'\btester\b', re.IGNORECASE)
     flagged = perfume[perfume['NAME'].astype(str).str.contains(tester_pattern, na=False)].copy()
-    if not flagged.empty:
-        flagged['Comment_Detail'] = "Perfume tester listed for sale: " + flagged['NAME'].astype(str).str[:60]
+    if not flagged.empty: flagged['Comment_Detail'] = "Perfume tester listed for sale: " + flagged['NAME'].astype(str).str[:60]
     return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
 
 def check_counterfeit_sneakers(data: pd.DataFrame, sneaker_category_codes: List[str], sneaker_sensitive_brands: List[str]) -> pd.DataFrame:
@@ -1537,25 +1179,13 @@ def check_unnecessary_words(data: pd.DataFrame, pattern: re.Pattern) -> pd.DataF
         flagged['NAME'] = flagged['NAME'].apply(highlight_matches)
     return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
 
-def check_single_word_name(
-    data: pd.DataFrame,
-    book_category_codes: List[str],
-    books_data: Dict = None,
-) -> pd.DataFrame:
-    if not {'CATEGORY_CODE', 'NAME'}.issubset(data.columns):
-        return pd.DataFrame(columns=data.columns)
-    cat_codes = (books_data or {}).get('category_codes') or set(
-        clean_category_code(c) for c in book_category_codes
-    )
+def check_single_word_name(data: pd.DataFrame, book_category_codes: List[str], books_data: Dict = None) -> pd.DataFrame:
+    if not {'CATEGORY_CODE', 'NAME'}.issubset(data.columns): return pd.DataFrame(columns=data.columns)
+    cat_codes = (books_data or {}).get('category_codes') or set(clean_category_code(c) for c in book_category_codes)
     non_books   = data[~data['CATEGORY_CODE'].apply(clean_category_code).isin(cat_codes)]
     word_counts = non_books['NAME'].astype(str).str.split().str.len()
     flagged     = non_books[word_counts <= 2].copy()
-    if not flagged.empty:
-        flagged['Comment_Detail'] = (
-            "Name too short ("
-            + word_counts[flagged.index].astype(str)
-            + " word(s)) — use format: Name – Type – Colour"
-        )
+    if not flagged.empty: flagged['Comment_Detail'] = "Name too short (" + word_counts[flagged.index].astype(str) + " word(s)) — use format: Name – Type – Colour"
     return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
 
 def check_generic_brand_issues(data: pd.DataFrame, valid_category_codes_fas: List[str]) -> pd.DataFrame:
@@ -1564,22 +1194,16 @@ def check_generic_brand_issues(data: pd.DataFrame, valid_category_codes_fas: Lis
 
 def check_fashion_brand_issues(data: pd.DataFrame, valid_category_codes_fas: List[str], code_to_path: Dict = None) -> pd.DataFrame:
     if not {'CATEGORY_CODE', 'BRAND'}.issubset(data.columns): return pd.DataFrame(columns=data.columns)
-    if code_to_path is None:
-        code_to_path = {}
+    if code_to_path is None: code_to_path = {}
     fashion_brand = data[data['BRAND'].astype(str).str.strip().str.lower() == 'fashion'].copy()
-    if fashion_brand.empty:
-        return pd.DataFrame(columns=data.columns)
+    if fashion_brand.empty: return pd.DataFrame(columns=data.columns)
     def _in_fashion_domain(cat_code: str) -> bool:
         full_path = code_to_path.get(str(cat_code).strip(), '')
-        if full_path:
-            return full_path.strip().lower().startswith('fashion')
+        if full_path: return full_path.strip().lower().startswith('fashion')
         return clean_category_code(cat_code) in fas_codes
     fas_codes = set(clean_category_code(c) for c in valid_category_codes_fas)
-    flagged = fashion_brand[
-        ~fashion_brand['CATEGORY_CODE'].apply(lambda c: _in_fashion_domain(clean_category_code(c)))
-    ].copy()
-    if not flagged.empty:
-        flagged['Comment_Detail'] = "Brand 'Fashion' used outside Fashion category: " + flagged['CATEGORY_CODE'].astype(str)
+    flagged = fashion_brand[~fashion_brand['CATEGORY_CODE'].apply(lambda c: _in_fashion_domain(clean_category_code(c)))].copy()
+    if not flagged.empty: flagged['Comment_Detail'] = "Brand 'Fashion' used outside Fashion category: " + flagged['CATEGORY_CODE'].astype(str)
     return flagged.drop_duplicates(subset=['PRODUCT_SET_SID'])
 
 def check_brand_in_name(data: pd.DataFrame) -> pd.DataFrame:
@@ -1666,29 +1290,23 @@ def check_duplicate_products(data: pd.DataFrame, exempt_categories: List[str] = 
     if exempt_categories and 'CATEGORY_CODE' in d.columns:
         d = d[~d['CATEGORY_CODE'].apply(clean_category_code).isin(set(clean_category_code(c) for c in exempt_categories))]
     if d.empty: return pd.DataFrame(columns=data.columns)
-
     d['_norm_name']   = d['NAME'].astype(str).apply(lambda x: re.sub(r'\s+', '', normalize_text(x)))
     d['_norm_brand']  = d['BRAND'].astype(str).str.lower().str.strip()
     d['_norm_seller'] = d['SELLER_NAME'].astype(str).str.lower().str.strip()
     d['_dedup_key']   = d['_norm_seller'] + '|' + d['_norm_brand'] + '|' + d['_norm_name']
-
     first_seen_mask = ~d.duplicated(subset=['_dedup_key'], keep='first')
     dup_mask        = d.duplicated(subset=['_dedup_key'], keep='first')
-
     if not dup_mask.any(): return pd.DataFrame(columns=data.columns)
-
     first_occurrence = d[first_seen_mask].set_index('_dedup_key')['NAME']
     rdf = d[dup_mask].copy()
-    rdf['Comment_Detail'] = rdf['_dedup_key'].map(
-        lambda k: f"Duplicate: '{str(first_occurrence.get(k, ''))[:40]}'"
-    )
+    rdf['Comment_Detail'] = rdf['_dedup_key'].map(lambda k: f"Duplicate: '{str(first_occurrence.get(k, ''))[:40]}'")
     base_cols  = data.columns.tolist()
     extra_cols = [c for c in ['Comment_Detail'] if c not in base_cols]
     return rdf[base_cols + extra_cols].drop_duplicates(subset=['PRODUCT_SET_SID'])
 
 def check_nigeria_gift_card(data: pd.DataFrame, ng_rules: Dict) -> pd.DataFrame:
-    rules            = ng_rules.get("gift_card", {})
-    cat_codes        = rules.get("category_codes", set())
+    rules = ng_rules.get("gift_card", {})
+    cat_codes = rules.get("category_codes", set())
     approved_sellers = rules.get("sellers", set())
     if not cat_codes or not approved_sellers: return pd.DataFrame(columns=data.columns)
     if not {"CATEGORY_CODE", "SELLER_NAME"}.issubset(data.columns): return pd.DataFrame(columns=data.columns)
@@ -2093,6 +1711,203 @@ def prepare_full_data_merged(data_df, final_report_df):
     except Exception as e:
         logger.error(f"prepare_full_data_merged: {e}")
         return pd.DataFrame()
+
+# ==========================================
+# 4. APP UI AND EXECUTION 
+# ==========================================
+
+st.header(f":material/upload_file: {_t('upload_files')}", anchor=False)
+
+uploaded_files = st.file_uploader("", type=['csv', 'xlsx'], accept_multiple_files=True, key="daily_files")
+
+if uploaded_files:
+    st.session_state.cached_uploaded_files = [
+        {"name": uf.name, "bytes": uf.read()} for uf in uploaded_files
+    ]
+elif uploaded_files is not None and len(uploaded_files) == 0:
+    st.session_state.cached_uploaded_files = []
+    st.session_state.final_report = pd.DataFrame()
+    st.session_state.all_data_map = pd.DataFrame()
+    st.session_state.post_qc_summary = pd.DataFrame()
+    st.session_state.post_qc_results = {}
+    st.session_state.post_qc_data = pd.DataFrame()
+    st.session_state.file_mode = None
+    st.session_state.exports_cache = {}
+    st.session_state.display_df_cache = {}
+    st.session_state.last_processed_files = "empty"
+
+_files_for_processing = st.session_state.get("cached_uploaded_files", [])
+
+if _files_for_processing:
+    current_file_signature = sorted([f["name"] + hashlib.md5(f["bytes"]).hexdigest() for f in _files_for_processing])
+    process_signature = str(current_file_signature) + f"_{country_validator.code}"
+else:
+    process_signature = "empty"
+
+if st.session_state.get('last_processed_files') != process_signature:
+    st.session_state.final_report = pd.DataFrame()
+    st.session_state.all_data_map = pd.DataFrame()
+    st.session_state.post_qc_summary = pd.DataFrame()
+    st.session_state.post_qc_results = {}
+    st.session_state.post_qc_data = pd.DataFrame()
+    st.session_state.file_mode = None
+    st.session_state.intersection_sids = set()
+    st.session_state.intersection_count = 0
+    st.session_state.grid_page = 0
+    st.session_state.exports_cache = {}
+    st.session_state.display_df_cache = {}
+    st.session_state.flags_expanded_initialized = False
+    if 'main_bridge_counter' not in st.session_state: st.session_state.main_bridge_counter = 0
+    st.session_state.desel_counter = 0
+    st.session_state.quick_rejections = {}
+    st.session_state.batch_counter = 0
+    st.session_state.clear_counter = 0
+    st.session_state.ls_processed_flag = False
+    st.session_state.ls_read_trigger = 0
+    st.session_state.search_active = False
+    st.session_state.pre_search_page = 0
+    keys_to_delete = [k for k in st.session_state.keys() if k.startswith(("grid_chk_", "toast_"))]
+    for k in keys_to_delete: del st.session_state[k]
+
+    if process_signature == "empty":
+        st.session_state.last_processed_files = "empty"
+    else:
+        _engine_for_cache = _get_cat_matcher_engine() if _CAT_MATCHER_AVAILABLE else None
+        _learning_stamp   = str(len(_engine_for_cache.learning_db)) if _engine_for_cache else "0"
+        sig_hash = hashlib.md5((process_signature + _learning_stamp).encode()).hexdigest()
+        cached_data = load_df_parquet(f"{sig_hash}_data.parquet")
+        cached_report = load_df_parquet(f"{sig_hash}_report.parquet")
+
+        if cached_data is not None and cached_report is not None:
+            st.session_state.final_report = cached_report
+            st.session_state.all_data_map = cached_data
+            st.session_state.last_processed_files = process_signature
+            st.toast("Loaded from cache", icon=":material/bolt:")
+        else:
+            try:
+                all_dfs = []
+                file_sids_sets = []
+                detected_modes = []
+                for uf in _files_for_processing:
+                    from io import BytesIO as _BytesIO
+                    _buf = _BytesIO(uf["bytes"])
+                    if uf["name"].endswith('.xlsx'):
+                        raw_data = pd.read_excel(_buf, engine='openpyxl', dtype=str)
+                    else:
+                        raw_data = _detect_and_read_csv(_buf)
+                    raw_data = _repair_mojibake(raw_data)
+                    detected_modes.append(detect_file_type(raw_data))
+                    all_dfs.append(raw_data)
+
+                file_mode = detected_modes[0] if detected_modes else 'pre_qc'
+                st.session_state.file_mode = file_mode
+
+                if file_mode == 'post_qc':
+                    st.info(
+                        "Post-QC file detected. "
+                        "Please use the **Post-QC** page in the sidebar to process this file.",
+                        icon=":material/fact_check:",
+                    )
+                    st.session_state.last_processed_files = process_signature
+                else:
+                    std_dfs = []
+                    for raw_data in all_dfs:
+                        std_data = standardize_input_data(raw_data)
+                        if 'PRODUCT_SET_SID' in std_data.columns:
+                            std_data['PRODUCT_SET_SID'] = std_data['PRODUCT_SET_SID'].astype(str).str.strip()
+                            file_sids_sets.append(set(std_data['PRODUCT_SET_SID'].unique()))
+                        std_dfs.append(std_data)
+                    merged_data = pd.concat(std_dfs, ignore_index=True)
+                    if len(file_sids_sets) > 1: st.session_state.intersection_sids = set.intersection(*file_sids_sets)
+                    else: st.session_state.intersection_sids = set()
+                    st.session_state.intersection_count = len(st.session_state.intersection_sids)
+                    data_prop = propagate_metadata(merged_data)
+                    is_valid, errors = validate_input_schema(data_prop)
+                    if is_valid:
+                        data_filtered, det_names = filter_by_country(data_prop, country_validator)
+                        if data_filtered.empty:
+                            st.error(f"No {country_validator.country} products found. Detected countries: {', '.join(det_names) if det_names else 'None'}", icon=":material/error:")
+                            st.stop()
+                        actual_counts = data_filtered.groupby('PRODUCT_SET_SID')['PRODUCT_SET_SID'].transform('count')
+                        if 'COUNT_VARIATIONS' in data_filtered.columns:
+                            file_counts = pd.to_numeric(data_filtered['COUNT_VARIATIONS'], errors='coerce').fillna(1)
+                            data_filtered['COUNT_VARIATIONS'] = actual_counts.combine(file_counts, max)
+                        else:
+                            data_filtered['COUNT_VARIATIONS'] = actual_counts
+                        data = data_filtered.drop_duplicates(subset=['PRODUCT_SET_SID'], keep='first')
+                        if '_IS_MULTI_COUNTRY' not in data.columns: data['_IS_MULTI_COUNTRY'] = False
+                        data_has_warranty = all(c in data.columns for c in ['PRODUCT_WARRANTY', 'WARRANTY_DURATION'])
+                        for c in ['NAME', 'BRAND', 'COLOR', 'SELLER_NAME', 'CATEGORY_CODE', 'LIST_VARIATIONS']:
+                            if c in data.columns: data[c] = data[c].astype(str).fillna('')
+                        if 'COLOR_FAMILY' not in data.columns: data['COLOR_FAMILY'] = ""
+
+                        data_hash = df_hash(data) + country_validator.code
+                        final_report, _ = cached_validate_products(data_hash, data, support_files, country_validator.code, data_has_warranty)
+
+                        st.session_state.final_report = final_report
+                        st.session_state.all_data_map = data
+                        st.session_state.last_processed_files = process_signature
+
+                        save_df_parquet(data, f"{sig_hash}_data.parquet")
+                        save_df_parquet(final_report, f"{sig_hash}_report.parquet")
+                    else:
+                        for e in errors: st.error(e)
+                        st.session_state.last_processed_files = "error"
+            except Exception as e:
+                st.error(f"Processing error: {e}")
+                st.code(traceback.format_exc())
+                st.session_state.last_processed_files = "error"
+
+_bridge_val = st.text_input(
+    "jtbridge", value="",
+    placeholder="JTBRIDGE_UNIQUE_DO_NOT_USE",
+    key=f"main_bridge_{st.session_state.main_bridge_counter}",
+    label_visibility="collapsed",
+)
+if _bridge_val:
+    try:
+        _msg = json.loads(_bridge_val)
+        if _msg.get("action") == "reject":
+            _payload = _msg.get("payload", {})
+            if isinstance(_payload, dict) and _payload:
+                _rgroups: dict = {}
+                for _sid, _rkey in _payload.items():
+                    _rgroups.setdefault(_rkey, []).append(_sid)
+                _total = 0
+                for _rkey, _sids in _rgroups.items():
+                    _flag = REASON_MAP.get(_rkey, "Other Reason (Custom)")
+                    _rinfo = support_files["flags_mapping"].get(_flag, {'reason': "1000007 - Other Reason", 'en': "Manual rejection"})
+                    _code = _rinfo['reason']
+                    _cmt_lang = 'fr' if st.session_state.selected_country == "Morocco" else 'en'
+                    _cmt = _rinfo.get(_cmt_lang, _rinfo.get('en'))
+                    st.session_state.final_report.loc[
+                        st.session_state.final_report["ProductSetSid"].isin(_sids),
+                        ["Status", "Reason", "Comment", "FLAG"]
+                    ] = ["Rejected", _code, _cmt, _flag]
+                    for _s in _sids:
+                        st.session_state.quick_rejections[_s] = _flag
+                    _total += len(_sids)
+                st.session_state.exports_cache.clear()
+                st.session_state.display_df_cache.clear()
+                st.session_state.main_toasts.append((f"Rejected {_total} product(s)", ":material/block:"))
+                st.session_state.main_bridge_counter += 1
+                st.session_state.do_scroll_top = False
+                st.rerun()
+
+        elif _msg.get("action") == "undo":
+            _payload = _msg.get("payload", {})
+            _total_restored = 0
+            if isinstance(_payload, dict):
+                for _sid in _payload.keys():
+                    restore_single_item(_sid)
+                    _total_restored += 1
+            if _total_restored > 0:
+                st.session_state.main_bridge_counter += 1
+                st.session_state.do_scroll_top = False
+                st.rerun()
+
+    except Exception as _e:
+        logger.error(f"Bridge parse error: {_e}")
 
 if _files_for_processing and not st.session_state.final_report.empty and st.session_state.file_mode != 'post_qc':
     fr = st.session_state.final_report
