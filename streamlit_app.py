@@ -115,7 +115,7 @@ if 'load_category_map' not in dir():
 logger = logging.getLogger(__name__)
 
 # -------------------------------------------------
-# CACHE DIRECTORIES & HELPERS
+# CACHE DIRECTORIES & CONSTANTS
 # -------------------------------------------------
 PARQUET_CACHE_DIR = "app_cache_parquet"
 FLAG_CACHE_DIR = "app_cache_flags"
@@ -228,6 +228,135 @@ NEW_FILE_MAPPING = {
     'number of variations': 'COUNT_VARIATIONS', 'list_variations': 'LIST_VARIATIONS', 'list variations': 'LIST_VARIATIONS'
 }
 
+# -------------------------------------------------
+# INITIALIZATION & CONTEXT
+# -------------------------------------------------
+if 'layout_mode' not in st.session_state: st.session_state.layout_mode = "wide"
+if 'ui_lang' not in st.session_state: st.session_state.ui_lang = "en"
+if 'final_report' not in st.session_state: st.session_state.final_report = pd.DataFrame()
+if 'all_data_map' not in st.session_state: st.session_state.all_data_map = pd.DataFrame()
+if 'post_qc_summary' not in st.session_state: st.session_state.post_qc_summary = pd.DataFrame()
+if 'post_qc_results' not in st.session_state: st.session_state.post_qc_results = {}
+if 'post_qc_data' not in st.session_state: st.session_state.post_qc_data = pd.DataFrame()
+if 'file_mode' not in st.session_state: st.session_state.file_mode = None
+if 'intersection_sids' not in st.session_state: st.session_state.intersection_sids = set()
+if 'intersection_count' not in st.session_state: st.session_state.intersection_count = 0
+if 'grid_page' not in st.session_state: st.session_state.grid_page = 0
+if 'grid_items_per_page' not in st.session_state: st.session_state.grid_items_per_page = 50
+if 'main_toasts' not in st.session_state: st.session_state.main_toasts = []
+if 'exports_cache' not in st.session_state: st.session_state.exports_cache = {}
+if 'do_scroll_top' not in st.session_state: st.session_state.do_scroll_top = False
+if 'display_df_cache' not in st.session_state: st.session_state.display_df_cache = {}
+if 'main_bridge_counter' not in st.session_state: st.session_state.main_bridge_counter = 0
+if 'search_active' not in st.session_state: st.session_state.search_active = False
+if 'pre_search_page' not in st.session_state: st.session_state.pre_search_page = 0
+if 'desel_counter' not in st.session_state: st.session_state.desel_counter = 0
+if 'quick_rejections' not in st.session_state: st.session_state.quick_rejections = {}
+if 'batch_counter' not in st.session_state: st.session_state.batch_counter = 0
+if 'clear_counter' not in st.session_state: st.session_state.clear_counter = 0
+if 'ls_processed_flag' not in st.session_state: st.session_state.ls_processed_flag = False
+if 'ls_read_trigger' not in st.session_state: st.session_state.ls_read_trigger = 0
+if 'flags_expanded_initialized' not in st.session_state: st.session_state.flags_expanded_initialized = False
+
+_pre_country = st.session_state.get("country_selector") or st.session_state.get("selected_country", "Kenya")
+if _pre_country == "Morocco":
+    st.session_state.ui_lang = "fr"
+elif st.session_state.get("ui_lang") == "fr":
+    st.session_state.ui_lang = "en"
+
+def _t(key):
+    return get_translation(st.session_state.ui_lang, key)
+
+try: st.set_page_config(page_title="Product Tool", layout=st.session_state.layout_mode)
+except: pass
+
+st_yled.init()
+
+rtl_css = """
+        div[data-testid="stTextArea"] textarea, div[data-testid="stTextInput"] input {
+            direction: rtl !important;
+            text-align: right !important;
+        }
+""" if st.session_state.ui_lang == "ar" else ""
+
+st.markdown(f"""
+    <style>
+        {rtl_css}
+        div[data-testid="stTextInput"]:has(input[placeholder="JTBRIDGE_UNIQUE_DO_NOT_USE"]) {{
+            position: absolute !important; width: 1px !important; height: 1px !important;
+            padding: 0 !important; margin: -1px !important; overflow: hidden !important;
+            clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important;
+            border: 0 !important; opacity: 0 !important; z-index: -9999 !important;
+        }}
+        @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined');
+        :root {{ --jumia-orange: {JUMIA_COLORS['primary_orange']}; --jumia-red: {JUMIA_COLORS['jumia_red']}; --jumia-dark: {JUMIA_COLORS['dark_gray']}; }}
+        header[data-testid="stHeader"] {{ background: transparent !important; }}
+        div[data-testid="stStatusWidget"] {{ z-index: 9999999 !important; }}
+        .stButton > button {{ border-radius: 4px; font-weight: 600; transition: all 0.3s ease; }}
+        .stButton > button[kind="primary"] {{ background-color: {JUMIA_COLORS['primary_orange']} !important; border: none !important; color: white !important; }}
+        .stButton > button[kind="primary"]:hover {{ background-color: {JUMIA_COLORS['secondary_orange']} !important; box-shadow: 0 4px 8px rgba(246, 139, 30, 0.3); transform: translateY(-1px); }}
+        .stButton > button[kind="secondary"] {{ background-color: white !important; border: 2px solid {JUMIA_COLORS['primary_orange']} !important; color: {JUMIA_COLORS['primary_orange']} !important; }}
+        .stButton > button[kind="secondary"]:hover {{ background-color: {JUMIA_COLORS['light_gray']} !important; }}
+        div[data-testid="stMetric"] {{ background: {JUMIA_COLORS['light_gray']}; border-radius: 0 0 8px 8px; padding: 12px 16px 16px 16px; text-align: center; }}
+        div[data-testid="stMetricValue"] {{ color: {JUMIA_COLORS['dark_gray']}; font-weight: 700; font-size: 26px !important; }}
+        div[data-testid="stMetricLabel"] {{ color: {JUMIA_COLORS['medium_gray']}; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }}
+        ::-webkit-scrollbar {{ width: 18px !important; height: 18px !important; }}
+        ::-webkit-scrollbar-track {{ background: {JUMIA_COLORS['light_gray']}; border-radius: 8px; }}
+        ::-webkit-scrollbar-thumb {{ background: {JUMIA_COLORS['medium_gray']}; border-radius: 8px; border: 3px solid {JUMIA_COLORS['light_gray']}; }}
+        ::-webkit-scrollbar-thumb:hover {{ background: {JUMIA_COLORS['primary_orange']}; }}
+        * {{ scrollbar-width: auto; scrollbar-color: {JUMIA_COLORS['medium_gray']} {JUMIA_COLORS['light_gray']}; }}
+        div[data-baseweb="slider"] div[role="slider"] {{ height: 24px !important; width: 24px !important; border: 4px solid {JUMIA_COLORS['primary_orange']} !important; cursor: pointer !important; }}
+        div[data-baseweb="slider"] > div > div {{ height: 12px !important; }}
+        @media (prefers-color-scheme: dark) {{
+            div[data-testid="stMetricValue"] {{ color: #F5F5F5 !important; }}
+            div[data-testid="stMetricLabel"] {{ color: #B0B0B0 !important; }}
+            div[data-testid="stMetric"] {{ background: #2a2a2e !important; }}
+            h1, h2, h3 {{ color: #F5F5F5 !important; }}
+            div[data-testid="stExpander"] summary {{ background-color: #2a2a2e !important; color: #F5F5F5 !important; }}
+            div[data-testid="stExpander"] summary p, div[data-testid="stExpander"] summary span, div[data-testid="stExpander"] summary div {{ color: #F5F5F5 !important; }}
+            div[data-testid="stDataFrame"] * {{ color: #F5F5F5 !important; }}
+            .stDataFrame th {{ background-color: #2a2a2e !important; color: #F5F5F5 !important; }}
+            .color-badge {{ background: #3a3a3e !important; border-color: #555 !important; color: #E0E0E0 !important; }}
+            div[style*="position: sticky"], div[style*="position:sticky"] {{ background-color: #0e1117 !important; border-bottom-color: #2a2a2e !important; }}
+            .stCaption, div[data-testid="stCaptionContainer"] p {{ color: #B0B0B0 !important; }}
+            .prod-meta-text {{ color: #B0B0B0 !important; }}
+            .prod-brand-text {{ color: {JUMIA_COLORS['secondary_orange']} !important; }}
+            ::-webkit-scrollbar-track {{ background: #1e1e1e; border-color: #1e1e1e; }}
+            ::-webkit-scrollbar-thumb {{ background: #555; border-color: #1e1e1e; }}
+            ::-webkit-scrollbar-thumb:hover {{ background: {JUMIA_COLORS['primary_orange']}; }}
+        }}
+        div[data-testid="stExpander"] {{ border: 1px solid {JUMIA_COLORS['border_gray']}; border-radius: 8px; }}
+        div[data-testid="stExpander"] summary {{ background-color: {JUMIA_COLORS['light_gray']}; padding: 12px; border-radius: 8px 8px 0 0; }}
+        h1, h2, h3 {{ color: {JUMIA_COLORS['dark_gray']} !important; }}
+        div[data-baseweb="segmented-control"] button {{ border-radius: 4px; }}
+        div[data-baseweb="segmented-control"] button[aria-pressed="true"] {{ background-color: {JUMIA_COLORS['primary_orange']} !important; color: white !important; }}
+        input[type="checkbox"]:checked {{ background-color: {JUMIA_COLORS['primary_orange']} !important; border-color: {JUMIA_COLORS['primary_orange']} !important; }}
+        div[data-testid="stCheckbox"] {{ margin-top: 5px; margin-bottom: 5px; }}
+    </style>
+""", unsafe_allow_html=True)
+
+def get_default_country():
+    try:
+        lang = st.context.headers.get("Accept-Language", "")
+        if "KE" in lang: return "Kenya"
+        if "UG" in lang: return "Uganda"
+        if "NG" in lang: return "Nigeria"
+        if "GH" in lang: return "Ghana"
+        if "MA" in lang: return "Morocco"
+    except: pass
+    return "Kenya"
+
+if 'selected_country' not in st.session_state: st.session_state.selected_country = get_default_country()
+
+if st.session_state.main_toasts:
+    for msg in st.session_state.main_toasts:
+        if isinstance(msg, tuple): st.toast(msg[0], icon=msg[1])
+        else: st.toast(msg)
+    st.session_state.main_toasts.clear()
+
+# -------------------------------------------------
+# DATA UTILITIES
+# -------------------------------------------------
 def clean_category_code(code) -> str:
     try:
         if pd.isna(code): return ""
@@ -1698,8 +1827,9 @@ def prepare_full_data_merged(data_df, final_report_df):
         logger.error(f"prepare_full_data_merged: {e}")
         return pd.DataFrame()
 
+
 # ==========================================
-# 4. APP UI AND EXECUTION 
+# APP UI AND EXECUTION 
 # ==========================================
 
 st.header(f":material/upload_file: {_t('upload_files')}", anchor=False)
